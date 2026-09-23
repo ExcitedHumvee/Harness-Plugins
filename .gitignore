@@ -1,0 +1,8 @@
+# Node
+node_modules/
+
+# Pre-patch copies of the published frontend bundle and shell files. These are
+# proprietary build artifacts and are recreated by the patcher on first run, so
+# they must never be committed.
+rebrand/backups/
+*.orig-backup
