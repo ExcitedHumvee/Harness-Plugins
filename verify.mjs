@@ -1,21 +1,24 @@
 /**
  * Check everything in this repository, end to end.
  *
- * Four questions, asked in order:
+ * Five questions, asked in order:
  *
  *   1. Does every script here parse?
  *   2. Does the sound-alerts client behave? (`sound-alerts/verify-client.mjs`)
- *   3. Is the frontend rebrand in effect? (`rebrand/verify-web-brand.mjs`)
- *   4. Is every plugin wired into the DSH profile? (`install.mjs --check`)
+ *   3. Does the STT composer button behave? (`stt/verify-client.mjs`) — and does
+ *      the faster-whisper sidecar answer? (`stt/verify-server.mjs`, which skips
+ *      cleanly when nothing is listening)
+ *   4. Is the frontend rebrand in effect? (`rebrand/verify-web-brand.mjs`)
+ *   5. Is every plugin wired into the DSH profile? (`install.mjs --check`)
  *
- * Steps 3 and 4 read the machine, not just the checkout, so a failure there means
+ * Steps 4 and 5 read the machine, not just the checkout, so a failure there means
  * "not installed here (yet)" rather than "bad code". Run it after installing to
  * confirm both halves landed.
  *
  * Usage:
  *   node verify.mjs
  *
- * Exit code 0 means all four passed.
+ * Exit code 0 means all five passed.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -61,7 +64,7 @@ function run(script, args = []) {
 /** @type {{label: string, ok: boolean}[]} */
 const results = [];
 
-console.log('1/4  syntax');
+console.log('1/5  syntax');
 {
   let bad = 0;
   for (const file of scriptFiles()) {
@@ -77,21 +80,32 @@ console.log('1/4  syntax');
 }
 
 console.log('');
-console.log('2/4  sound-alerts behaviour');
+console.log('2/5  sound-alerts behaviour');
 {
   const ok = run(join(here, 'sound-alerts', 'verify-client.mjs'));
   results.push({ label: 'sound-alerts client behaviour', ok });
 }
 
 console.log('');
-console.log('3/4  rebrand in effect');
+console.log('3/5  stt composer button');
+{
+  const ok = run(join(here, 'stt', 'verify-client.mjs'));
+  results.push({ label: 'stt client behaviour', ok });
+  // The engine half: /health, the loaded model, and (when a clip is passed on the
+  // command line) a transcript. With nothing listening it prints a skip notice and
+  // exits 0, so a checkout without the sidecar installed still verifies cleanly.
+  run(join(here, 'stt', 'verify-server.mjs'));
+}
+
+console.log('');
+console.log('4/5  rebrand in effect');
 {
   const ok = run(join(here, 'rebrand', 'verify-web-brand.mjs'));
   results.push({ label: 'frontend rebrand applied and verified', ok });
 }
 
 console.log('');
-console.log('4/4  profile wiring');
+console.log('5/5  profile wiring');
 {
   const ok = run(join(here, 'install.mjs'), ['--check']);
   results.push({ label: 'plugins wired into the DSH profile', ok });
