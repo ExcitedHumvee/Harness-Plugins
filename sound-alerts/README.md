@@ -49,16 +49,20 @@ completion.
 
 ## How it loads
 
-The package is dual-face, the standard DSH client-plugin shape:
+The package is a **bundle**: `package.json` declares `dsh.bundle.patch`, so DSH
+applies [`cordis.patch.yml`](./cordis.patch.yml) as a configuration layer when the
+package is listed in the profile's `dsh.profile.bundles`. That layer's only job is
+to mount this package, and it also carries the browser half:
 
+- `cordis.patch.yml` — the layer. One row: `- id: sound-alerts` /
+  `name: dsh-sound-alerts`.
 - `lib/index.js` — the host half. Empty `apply`; it exists so the package is a
-  well-formed Cordis Loader entry and therefore appears in the entry scan that
-  composes `window.__DSH_BOOT__`.
+  well-formed Cordis Loader entry.
 - `lib/client.js` — the browser half, discovered through this package's own
-  `dsh.client` declaration. It is plain script-form JavaScript
-  (`window.__ModuleLoader__.load({ id, factory })`), so no build step is
-  involved: the bundle is served as-is from disk.
-- `package.json` — declares `exports["./client"]` and `dsh.client`
+  `dsh.client` declaration and served at `/plugins/dsh-sound-alerts/client.js`.
+  It is plain script-form JavaScript (`window.__ModuleLoader__.load({ id, factory })`),
+  so no build step is involved: the bundle is served as-is from disk.
+- `package.json` — declares `exports["./client"]` alongside `dsh.client`
   (`platform: web`, `immediately: true`, plus an `inject` edge onto
   `dsh-client-ui-conversation`, which declares the header slot).
 
@@ -68,21 +72,34 @@ The client half registers one occupant into
 
 ## Installing it
 
-From the repository root, `node install.mjs` adds this row to
-`$DSH_HOME/profiles/web/cordis.patch.yml` — with the real absolute path of the
-checkout in place of `<repo>`:
-
-```yaml
-- insert:
-    - id: sound-alerts
-      name: file:///<repo>/sound-alerts/lib/index.js
+```sh
+dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/sound-alerts"
 ```
 
-The plugin is referenced by a `file:` URL, so there is no install step and no
-`node_modules` entry. Profiles with `patchReload: live` (the default for `web`)
-apply the change without a server restart; reload the page so the browser
-re-reads the boot graph. Remove the row (`node install.mjs --uninstall`) to turn
-the alerts off.
+Then **restart DSH** (`dsh web`) and reload the page. A bundle is composed at
+boot, so unlike a profile patch-file edit it is not picked up by
+`patchReload: live`.
+
+`dsh plugin` forwards to pnpm in the profile directory, so pnpm must be on PATH
+(`corepack enable pnpm`). On Windows, install from a path without spaces — DSH
+forwards the argument through `cmd.exe`, which splits it.
+
+To remove it, run the inverse and restart:
+
+```sh
+dsh plugin --profile web remove dsh-sound-alerts
+```
+
+### While editing this package
+
+`dsh plugin` links the checkout, so a client-half edit needs only
+`dsh plugin --profile web add <path>` again plus a page reload — the browser
+fetches the bundle by content revision. A host-half edit needs a restart, because
+the row's module is cached by the ESM loader.
+
+`node install.mjs --wire` (from the repository root) mounts the host entry by
+`file:` URL instead, which *is* covered by `patchReload: live`. It is the faster
+loop for host-half work and not a distribution form.
 
 ## Verifying
 

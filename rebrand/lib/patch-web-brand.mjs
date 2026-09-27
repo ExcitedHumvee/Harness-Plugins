@@ -20,7 +20,7 @@
  * glyph, so no consumer can render the whale.
  *
  * Usage:
- *   node rebrand/patch-web-brand.mjs [--check] [--all] [--dist=DIR]
+ *   node rebrand/lib/patch-web-brand.mjs [--check] [--all] [--dist=DIR]
  *
  * Run `node rebrand/apply-rebrand.mjs` instead to patch the shell files
  * (title, manifest, favicon) in the same pass and verify the result.

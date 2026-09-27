@@ -1,132 +1,190 @@
-# DSH Harness Plugins
+<h1 align="center">Harness Plugins</h1>
 
-Drop-in plugins for the **DeepSeek Harness (DSH) Web GUI**: they mount straight
-from a git checkout by `file:` URL, with no package install and no build step.
+<p align="center">
+Two plugins for the <b>DeepSeek Harness (DSH)</b> Web GUI: notification sounds when an agent finishes or needs you, and a rebrand that removes the DeepSeek wordmark and logo.
+</p>
 
-This repository is written to be handed to an AI agent. Point it at this repo and
-say "install these plugins"; the agent should read [`AGENTS.md`](./AGENTS.md),
-which carries the exact commands, the decision rules, and the failure modes.
+| Plugin | What it does | Where the work happens |
+|---|---|---|
+| [`sound-alerts/`](./sound-alerts/README.md) | One synthesized cue when a final response completes, another when the agent is waiting on your input, with a header control for customizing both | Browser (`dsh.client`) |
+| [`rebrand/`](./rebrand/README.md) | Removes the DeepSeek wordmark and logo from the shipped web frontend and renames the app to **Harness** | Host (`dsh.bundle`) |
 
-| Plugin | What it does |
-|---|---|
-| [`sound-alerts/`](./sound-alerts/README.md) | Notification sounds: one cue when a final response completes, another when the agent is waiting on your input, with a header control for customizing both |
-| [`stt/`](./stt/README.md) | A microphone button in the composer that dictates into it with **faster-whisper** running locally (offline, inserts at the cursor, ~145 MB of weights) |
-| [`rebrand/`](./rebrand/README.md) | Removes the DeepSeek wordmark and logo from the shipped web frontend and renames the app to **Harness** |
-
-They are independent: install any one, or all three. `sound-alerts` and `stt` are
-Cordis client plugins mounted by `file:` URL; `rebrand` patches the installed
-frontend in place and is not wired into the profile at all.
-
-## Requirements
-
-- DSH installed and running as the Web GUI (`dsh web`), which installs
-  `@deepseek-ai/dsh-web-frontend` into `$DSH_HOME`.
-- Node.js 20+ (developed against 24).
-- The `web` profile — the default. Another profile works too: pass
-  `--profile=<name>`.
-- **For `stt` only:** Python 3.11 and ~145 MB of model weights for the default
-  `base` model (75-500 MB for the other sizes). No system Python is needed —
-  `stt/server/setup.ps1` fetches a standalone interpreter with `uv`. Everything
-  after setup runs offline.
+Both are **bundles**: npm packages whose manifest declares `dsh.bundle`, which is
+the form DSH installs from a git repository, a tarball, npm, or a local folder.
+Installing one takes a single DSH command and no build step — the packages ship
+their runtime files.
 
 ## Install
 
-Clone this repository somewhere permanent — the profile row records the
-checkout's **absolute path**, so moving or deleting the clone later un-wires the
-plugin.
+Pick the channel that matches what you have.
+
+### From the Web GUI (a plugin marketplace)
+
+A community marketplace plugin adds an install UI to DSH's settings, with one-click
+install and update for every repository carrying GitHub's `dsh-plugin` topic.
+Install the marketplace itself first (DSH's own CLI, one command), then install
+these two from its list:
 
 ```sh
-git clone <this-repo-url> dsh-harness-plugins
-cd dsh-harness-plugins
-
-node install.mjs                                    # wire sound-alerts + stt into the profile
-node rebrand/apply-rebrand.mjs                      # patch the web frontend to the Harness brand
-pwsh -File stt/server/setup.ps1                     # install the faster-whisper sidecar (stt only)
-
-node verify.mjs                                     # confirm code, rebrand, sidecar and wiring
+dsh plugin --profile web add bradeGithub/DSH-Plugins-Marketplace
 ```
 
-Then **reload the GUI page** (Ctrl+Shift+R). The `web` profile uses
-`patchReload: live`, so no server restart is needed.
+Restart DSH, open **Settings → DSH 插件市场**, and install **Harness Plugins**.
+This repository carries the `dsh-plugin` topic, so it is indexed and appears
+there automatically; use its search box if the list is long.
 
-Every command is idempotent, all of them have a `--check` mode that writes
-nothing, and all of them back up anything they change (`install.mjs` writes
-`cordis.patch.yml.bak-<timestamp>`; the rebrand writes pre-patch copies into
-`rebrand/backups/`).
+DSH itself has no built-in "pick a folder from my computer" plugin installer —
+its own install surface is the CLI, and the settings **Plugin list** tab is a
+read-only inventory. The marketplace is the GUI route; the two channels below are
+the built-in ones.
 
-## Uninstall
+### From this repository, by DSH's own CLI
+
+Point `dsh plugin` at each package. One command per plugin, and the commands are
+safe to re-run:
 
 ```sh
-node install.mjs --uninstall      # remove the plugin rows from the profile
+dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/sound-alerts"
+dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/rebrand"
 ```
 
-For the rebrand, restore the pre-patch files from `rebrand/backups/` — see
-[`rebrand/README.md`](./rebrand/README.md#rolling-back).
+**Restart DSH afterwards** (`dsh web`). A bundle contributes a configuration
+*layer* that is composed at boot, so unlike a patch-file edit it is not picked up
+by `patchReload`.
 
-## What is in here
+`dsh plugin` forwards to pnpm inside the profile directory, so pnpm has to be on
+PATH — `corepack enable pnpm`, or install pnpm directly. The `#path:/<subdir>`
+form selects a package inside this repository and works on Windows as written;
+posix shells also accept the commit-pinning spelling
+`#<commit>&path:/<subdir>` (quote it — `&` is special on Windows).
+
+To install from a local clone or a downloaded folder instead, pass the folder
+that holds `package.json` — not the repository root:
+
+```sh
+git clone https://github.com/ExcitedHumvee/Harness-Plugins.git
+dsh plugin --profile web add "<clone>/sound-alerts"
+dsh plugin --profile web add "<clone>/rebrand"
+```
+
+> **Windows, path with a space:** DSH forwards the path to pnpm through `cmd.exe`,
+> which splits it, and pnpm reports `Failed to resolve the latest version of
+> repos\Harness`. Clone to a path without spaces, or create a link once and install
+> through that:
+>
+> ```powershell
+> New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\repo" -Target "C:\path with spaces\Harness Plugins"
+> dsh plugin --profile web add "$env:USERPROFILE\.dsh\repo\sound-alerts"
+> ```
+
+### From this checkout, while developing
+
+`node install.mjs` drives the CLI channel above, and `--wire` mounts a plugin's
+host half straight out of the checkout instead (a `file:` row in the profile's own
+patch file, which *is* covered by `patchReload: live`):
+
+```sh
+node install.mjs             # install both as bundles (delegates to `dsh plugin add`)
+node install.mjs --check     # report what is installed here, change nothing
+node install.mjs --wire      # development mount: file: URLs, no reinstall on edit
+node install.mjs --uninstall # remove both plugins from the profile
+```
+
+The two forms conflict — a duplicate row id stops the profile from booting — so
+each one clears the other's rows and dependencies before it writes.
+
+## Verify
+
+```sh
+node verify.mjs
+```
+
+Six steps: every script parses; each package satisfies the bundle contract; the
+`sound-alerts` browser half and the `rebrand` host half behave; the rebrand is in
+effect on this machine; both plugins are installed in the profile. Exit code 0
+means everything that could run passed.
+
+## After installing
+
+1. **Restart DSH**, then hard-reload the page (Ctrl+Shift+R).
+2. `sound-alerts`: a speaker button appears in the session header utilities. It
+   opens a panel with the master switch, volume, minimum turn length, per-cue
+   sound/repeat/gap, Test, and Reset. Preferences are browser-local
+   (`localStorage`), not host settings.
+3. `rebrand`: the browser tab reads **Harness** and the favicon is a neutral
+   rounded-square "H". The patch is applied automatically at every boot, so a DSH
+   upgrade no longer loses it. If the tab still looks old, the browser cached
+   `favicon.svg` — open a fresh tab or hard-reload.
+
+## Managing
+
+```sh
+dsh plugin --profile web remove dsh-sound-alerts
+dsh plugin --profile web remove dsh-rebrand
+```
+
+`rebrand` is configurable from this profile's `cordis.patch.yml` without touching
+the package — the row keys are documented in
+[`rebrand/cordis.patch.yml`](./rebrand/cordis.patch.yml), and `enabled: false`
+turns it into a no-op. `sound-alerts` has no host-side settings; its control is in
+the GUI.
+
+## Layout
 
 ```
-README.md                     this file
-AGENTS.md                     install playbook for an AI agent (and for humans who want the details)
-install.mjs                   wires every client plugin in this checkout into the DSH profile
-verify.mjs                    runs all five checks: syntax, plugin behaviour, the STT engine, rebrand, wiring
+README.md                  this file
+install.mjs                install / --check / --wire / --uninstall for this checkout
+verify.mjs                 runs all six checks
+scripts/
+  check-packages.mjs       validates every package against the bundle contract
+  check-rebrand-plugin.mjs exercises the rebrand host plugin against a pristine frontend
 sound-alerts/
-  package.json                declares dsh.client (platform: web) and exports ./client
-  lib/index.js                host half: empty apply, so the entry-scan picks the package up
-  lib/client.js               browser half: the header control and the synthesized cues
-  verify-client.mjs           behavioural test suite, no browser required
-  README.md                   the plugin, in detail
-stt/
-  package.json                declares dsh.client (platform: web) and exports ./client
-  lib/index.js                host half: starts the faster-whisper sidecar on load
-  lib/client.js               browser half: the mic button, meter, recording, insertion, panel
-  verify-client.mjs           behavioural test suite, no browser required
-  verify-server.mjs           engine checks + optional end-to-end clip transcription
-  server/stt_server.py        the stdlib HTTP sidecar that owns the model
-  server/setup|start|stop     install / run / stop the sidecar (PowerShell and POSIX)
-  server/warmup.py            load the model, decode a tone or a file, prove the pipeline
-  README.md                   the plugin, in detail (including honest speed numbers)
+  package.json             declares dsh.bundle + dsh.client (platform: web)
+  cordis.patch.yml         the layer this bundle contributes
+  lib/index.js             host half: empty apply, so the entry scan sees the package
+  lib/client.js            browser half: the header control and the synthesized cues
+  verify-client.mjs        behavioural test suite, no browser required
+  README.md                the plugin, in detail
 rebrand/
-  README.md                   what changes, how to apply, how to verify, how to roll back
-  resolve-frontend.mjs        finds every installed @deepseek-ai/dsh-web-frontend copy
-  patch-web-brand.mjs         patches the minified JS bundle (anchor-based)
-  patch-web-shell.mjs         patches index.html, manifest.webmanifest, favicon.svg
-  apply-rebrand.mjs           apply both halves, then verify the result
-  verify-web-brand.mjs        evaluates the patched components and scans for residual brand
+  package.json             declares dsh.bundle
+  cordis.patch.yml         the layer this bundle contributes (and the config keys)
+  lib/index.js             host half: applies the rebrand on boot, never fatal
+  lib/apply-rebrand.mjs    the shared apply logic the plugin and the CLI both drive
+  lib/patch-web-brand.mjs  patches the minified JS bundle (anchor-based)
+  lib/patch-web-shell.mjs  patches index.html, manifest.webmanifest, favicon.svg
+  lib/resolve-frontend.mjs finds every installed frontend copy
+  lib/verify-web-brand.mjs evaluates the patched components and scans for residual brand
+  lib/backups/             pre-patch copies (git-ignored) — also the rollback
+  apply-rebrand.mjs        CLI: --check, --all, --dist=DIR
+  README.md                what changes, how to verify, how to roll back
 ```
 
-## Caveats worth knowing
+## Maintenance notes
 
-- **STT is offline, and its cost is per utterance, not per second.** The
-  faster-whisper sidecar reads weights from `stt/.models` (git-ignored, ~145 MB for
-  the default `base` model) with `local_files_only` first, so once setup has run,
-  dictation never touches the network. Whisper pads every clip to a 30-second
-  encoder window, so a 2.5-second utterance costs about what a 20-second one does:
-  medians of five runs on a 15 W laptop chip gave **~1.9 s per utterance with the
-  default `base`**, ~1.1 s with `tiny`, ~6 s with `small` — all three transcribing
-  the test clip correctly. Switch with `DSH_STT_MODEL` or
-  `stt/server/start.ps1 -Model small`; see
-  [`stt/README.md`](./stt/README.md#speed--the-honest-numbers).
-- **STT insertion never fails silently.** The caret insert rides the composer's own
-  paste command, then the editor's DOM; only when neither is available does the
-  transcript go to the clipboard, and the button always says which path it took,
-  next to the mic. The panel keeps the last transcript and a diagnostics readout.
-- **The rebrand is build-specific.** Its anchors were derived from the frontend
-  build that shipped with the DSH version installed when it was written. A newer
-  `@deepseek-ai/dsh-web-frontend` may rename its minified symbols; the patcher
-  then stops with `precondition failed: …` rather than corrupting the bundle.
-  Re-deriving the anchors is a real (and verifiable) job — see
-  [`rebrand/README.md`](./rebrand/README.md).
-- **More than one frontend copy can exist.** The profile's `node_modules` copy
-  and every `npx` cache hold their own `dist/`. `apply-rebrand.mjs` patches every
-  copy whose bytes match what the running server serves (matched over HTTP, no
-  authentication needed for hashed assets), and `--all` patches every copy it
-  finds.
-- **A DSH upgrade undoes the rebrand.** The upgrade replaces the frontend
-  `dist/`; re-run `node rebrand/apply-rebrand.mjs`.
-- **Sound preferences are browser-local** (`localStorage`), not host settings.
+- **GitHub topics.** For the marketplace to index this repository, it must carry
+  the **`dsh-plugin`** topic (Settings → Topics). `deepseek-harness`, `cordis-plugin`,
+  and a functional word or two are worth adding for discovery.
+- **Version bumps.** The marketplace decides whether to offer an update by comparing
+  the `version` in each package's `package.json` against the index. Bump it when you
+  change a package, or the update button never appears.
+- **The rebrand is build-specific.** Its anchors were derived from
+  `@deepseek-ai/dsh-web-frontend@0.1.5-rc.3`. A newer frontend may rename its
+  minified symbols; the patcher then refuses loudly (`precondition failed: …`) and
+  leaves the bundle untouched, which is the intended outcome. Re-deriving the
+  anchors is a deliberate, verifiable job — see [`rebrand/README.md`](./rebrand/README.md).
+- **There can be more than one frontend copy** (the profile's, plus one per `npx`
+  cache). The rebrand patches the copy the running server actually serves, matched
+  over HTTP; `--all` patches every copy.
+- **`rebrand/lib/backups/` is git-ignored on purpose** — it holds copies of a
+  proprietary published bundle.
+
+## Requirements
+
+- DSH installed and running as the Web GUI (`dsh web`).
+- Node.js 20+ for the scripts in this repository (developed against 24).
+- pnpm on PATH for the CLI install channel (`dsh plugin` is a pnpm forwarder). The
+  marketplace channel does not need it.
 
 ## License
 
 [MIT](./LICENSE).
-

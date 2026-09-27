@@ -1,0 +1,29 @@
+{
+  "name": "dsh-rebrand",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Removes the DeepSeek wordmark and logo from the DSH Web GUI and renames the app to Harness, re-applied automatically on every boot",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "apply-rebrand.mjs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ExcitedHumvee/Harness-Plugins.git",
+    "directory": "rebrand"
+  },
+  "license": "MIT"
+}

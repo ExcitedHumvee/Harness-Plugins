@@ -14,7 +14,7 @@
  * geometry and for a user-visible `"DeepSeek` literal.
  *
  * Usage:
- *   node rebrand/verify-web-brand.mjs [--all] [--dist=DIR]
+ *   node rebrand/lib/verify-web-brand.mjs [--all] [--dist=DIR]
  *
  * Import the exported functions to verify text the patcher produced in memory
  * (which is what `apply-rebrand.mjs --check` does).

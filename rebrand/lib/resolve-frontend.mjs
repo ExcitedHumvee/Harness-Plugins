@@ -211,7 +211,7 @@ export async function detectServedInstalls(installs, timeoutMs = 2000) {
 }
 
 /**
- * Copy a file into `rebrand/backups/` once, before the first time it is
+ * Copy a file into `rebrand/lib/backups/` once, before the first time it is
  * modified. The backup name embeds the original basename so several installs
  * (and several content hashes) can be kept side by side.
  *

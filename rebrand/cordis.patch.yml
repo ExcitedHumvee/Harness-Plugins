@@ -1,0 +1,28 @@
+# The rebrand bundle patch: the composition layer this package contributes.
+#
+# The row mounts the host half only. The rebrand edits the published frontend
+# artifacts in place, so it has no browser half and no `dsh.client` declaration —
+# `lib/apply-rebrand.mjs` is the work, and it runs when this row activates.
+#
+# The row names the package (not a path) on purpose: Node resolution then finds
+# the installed copy, `<profile>/node_modules/dsh-rebrand`.
+#
+# Every key below is optional and restated here so the intended defaults are
+# visible in the file a user would edit. A patch replaces a row's whole `config`,
+# so if you change one key, keep the others.
+
+- insert:
+    - id: rebrand
+      name: dsh-rebrand
+      config:
+        # false makes the row a no-op without removing it.
+        enabled: true
+        # false: only patch when the install is not already rebranded (the normal
+        # case — a second boot writes nothing). true: re-verify every boot.
+        everyBoot: false
+        # Probe the running server and patch only the frontend copy it serves.
+        detectServed: true
+        # Patch every frontend copy on the machine instead of the served one.
+        all: false
+        # An explicit dist/ directory; null means discover it.
+        dist: null

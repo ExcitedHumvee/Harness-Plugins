@@ -1,28 +1,15 @@
 # Node
 node_modules/
 
-# Python sidecars: the uv toolchain, virtualenvs, bytecode and install logs.
-# Written per-plugin, so a plugin added later is covered too.
-**/.venv/
-**/.tools/
-__pycache__/
-*.pyc
-
-# Model weights a sidecar keeps beside its own plugin (stt/.models — ~145 MB for
-# the default model). Ignored so a clone stays a few hundred KB, and kept on disk
-# so the plugin can run offline.
-**/.models/
-
-# Sidecar logs
-**/server.log
-**/server.log.err
-**/setup.log
-
 # Pre-patch copies of the published frontend bundle and shell files. These are
-# proprietary build artifacts, recreated by the patcher on first run, so they
-# must never be committed.
-rebrand/backups/
+# proprietary build artifacts, recreated by the rebrand on first run, so they must
+# never be committed. They live beside the host plugin that writes them.
+rebrand/lib/backups/
 *.orig-backup
+
+# The space-free directory links `install.mjs` creates when the checkout path
+# contains a space, which DSH cannot forward to pnpm on Windows.
+.dsh-plugin-links/
 
 # OS and editor noise
 .DS_Store

@@ -16,11 +16,11 @@
  *   `manifest.webmanifest` the JSON `name` / `short_name`
  *   `favicon.svg`          replaced wholesale by the neutral mark below
  *
- * Each rewrite is idempotent, each file is backed up to `rebrand/backups/`
+ * Each rewrite is idempotent, each file is backed up to `rebrand/lib/backups/`
  * before its first change, and `--check` reports the plan without writing.
  *
  * Usage:
- *   node rebrand/patch-web-shell.mjs [--check] [--all] [--dist=DIR]
+ *   node rebrand/lib/patch-web-shell.mjs [--check] [--all] [--dist=DIR]
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

@@ -12,10 +12,10 @@ are the record of exactly what changed.
 
 | Artifact | Change | Script |
 |---|---|---|
-| `dist/index.html` | `<title>DeepSeek Harness</title>` → `<title>Harness</title>`, plus `apple-mobile-web-app-title` | `patch-web-shell.mjs` |
-| `dist/manifest.webmanifest` | `name` and `short_name` → `Harness` | `patch-web-shell.mjs` |
-| `dist/favicon.svg` | DeepSeek whale replaced with a neutral rounded-square "H" mark | `patch-web-shell.mjs` |
-| `dist/assets/index-*.js` | The whale glyph and the outlined "DeepSeek" lockup removed | `patch-web-brand.mjs` |
+| `dist/index.html` | `<title>DeepSeek Harness</title>` → `<title>Harness</title>`, plus `apple-mobile-web-app-title` | `lib/patch-web-shell.mjs` |
+| `dist/manifest.webmanifest` | `name` and `short_name` → `Harness` | `lib/patch-web-shell.mjs` |
+| `dist/favicon.svg` | DeepSeek whale replaced with a neutral rounded-square "H" mark | `lib/patch-web-shell.mjs` |
+| `dist/assets/index-*.js` | The whale glyph and the outlined "DeepSeek" lockup removed | `lib/patch-web-brand.mjs` |
 
 The bundle and the shell are two separate halves of the same job: the bundle
 patch removes the mark from inside the running app, and the shell patch removes
@@ -41,7 +41,60 @@ References to `@deepseek-ai/*` package names, CSS custom properties such as
 ids are intentionally untouched: they are not user-visible branding, and changing
 them would break the plugin and module graph.
 
-## Applying it
+## Installing it
+
+```sh
+dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/rebrand"
+```
+
+Then **restart DSH** (`dsh web`). A bundle is composed at boot, so unlike a profile
+patch-file edit it is not picked up by `patchReload: live` — and the boot is
+exactly when this plugin does its work.
+
+`dsh plugin` forwards to pnpm in the profile directory, so pnpm must be on PATH
+(`corepack enable pnpm`). On Windows, install from a path without spaces — DSH
+forwards the argument through `cmd.exe`, which splits it.
+
+To remove it:
+
+```sh
+dsh plugin --profile web remove dsh-rebrand
+```
+
+### It patches on every boot
+
+This is a host plugin (`lib/index.js`), not a script you have to remember to
+re-run. On activation it finds the frontend the running server actually serves,
+applies the patch, and verifies the result. Three properties make that safe:
+
+- **Idempotent.** Every rewrite detects its own output, so a second boot writes
+  nothing; an install that is already rebranded is recognized without re-deriving
+  the bundle's element tree.
+- **Never fatal.** If the frontend is a build the anchors do not match, the
+  patcher refuses, the reason is logged, and the GUI starts anyway. A rebrand that
+  cannot apply must not become a DSH that will not boot.
+- **Survives an upgrade.** Reinstalling `@deepseek-ai/dsh-web-frontend` replaces
+  `dist/`; the next boot puts the rebrand back.
+
+### Configuration
+
+The plugin's row is configurable from the profile's own `cordis.patch.yml`, which
+wins over the bundle's layer. Every key is optional:
+
+```yaml
+- id: rebrand
+  config:
+    enabled: true          # false makes the row a no-op without uninstalling
+    everyBoot: false       # true re-verifies and re-patches on every boot
+    detectServed: true     # probe the running server and patch the copy it serves
+    all: false             # patch every frontend copy on the machine
+    dist: null             # an explicit dist/ directory, bypassing discovery
+```
+
+### Applying it by hand
+
+The CLI drives the same code as the plugin, and adds the modes a boot pass cannot
+offer — a report of what would change, and a choice of target:
 
 ```sh
 # Dry run: report what would change and verify the prospective result, touch nothing.
@@ -49,29 +102,21 @@ node rebrand/apply-rebrand.mjs --check
 
 # Apply (idempotent: an already-patched install is reported and skipped).
 node rebrand/apply-rebrand.mjs
-```
 
-The install is discovered automatically (`$DSH_HOME`, then the npx caches). When
-more than one copy exists, the default target is every copy whose bundle bytes
-match what the running server serves — matched by fetching `/assets/<bundle>`
-over HTTP, which is public even though the shell HTML needs authentication — and
-the fallback is the profile's copy when no server answers. To be explicit:
-
-```sh
 node rebrand/apply-rebrand.mjs --all          # every copy found on this machine
 node rebrand/apply-rebrand.mjs --dist=DIR     # one specific dist/ directory
-DSH_WEB_FRONTEND_BUNDLE=/path/to/index-<hash>.js node rebrand/patch-web-brand.mjs
+DSH_WEB_FRONTEND_BUNDLE=/path/to/index-<hash>.js node rebrand/lib/patch-web-brand.mjs
 ```
 
 `--dist=DIR` and `DSH_WEB_FRONTEND_DIST`/`DSH_WEB_FRONTEND_BUNDLE` also exist on
 the individual patchers and on the verifier.
 
-Every patcher writes pre-patch copies into `rebrand/backups/` before its first
+Every patcher writes pre-patch copies into `rebrand/lib/backups/` before its first
 change, and refuses to write when it cannot complete every replacement.
 
 ### Why the bundle patch is anchor-based
 
-`patch-web-brand.mjs` is written against exact byte anchors rather than line
+`lib/patch-web-brand.mjs` is written against exact byte anchors rather than line
 numbers or formatting, because the bundle is minified production output on one
 line. It asserts every anchor before touching anything, refuses to run when an
 anchor is missing or ambiguous, writes only after all replacements succeed, and
@@ -88,14 +133,15 @@ plausibly rename its minified symbols and change its path data, and the patcher
 then stops with `precondition failed: …` instead of corrupting the bundle. That
 is the intended outcome. Re-deriving the anchors against the new build is a
 deliberate, verified job — the six anchors are listed at the top of
-`patch-web-brand.mjs`, and `verify-web-brand.mjs` is what proves the new
+`lib/patch-web-brand.mjs`, and `lib/verify-web-brand.mjs` is what proves the new
 replacement renders.
 
 ## Verifying
 
 ```sh
-node rebrand/verify-web-brand.mjs          # the served/first install
-node rebrand/verify-web-brand.mjs --all    # every install found
+node rebrand/apply-rebrand.mjs --check              # every install / the served one
+node rebrand/lib/verify-web-brand.mjs               # the served/first install
+node rebrand/lib/verify-web-brand.mjs --all         # every install found
 ```
 
 `node --check` only proves the patched bundle parses. `verify-web-brand.mjs`
@@ -108,9 +154,12 @@ both still honor `size` and `className`. It then scans the whole bundle for
 residual brand geometry and for a user-visible `"DeepSeek` literal, and checks the
 shell files for the title, manifest names, and favicon mark.
 
-`apply-rebrand.mjs` runs the same checks — against the bytes it is about to write
-before writing them, and again from disk afterwards — so a patch that parses but
-renders the wrong mark fails the install instead of shipping.
+`lib/apply-rebrand.mjs` — the same code the plugin and the CLI run — applies the
+same checks against the bytes it is about to write, and again from disk
+afterwards, so a patch that parses but renders the wrong mark fails the install
+instead of shipping. `node ../../scripts/check-rebrand-plugin.mjs <pristine-dist>`
+exercises the host plugin itself: that it patches, is idempotent, honors
+`enabled: false`, and reports rather than throws on an unrecognizable bundle.
 
 ## After applying
 
@@ -123,22 +172,34 @@ Two browser caches are worth knowing about:
   (Ctrl+Shift+R) or add the page to a fresh tab.
 - The **app title** likewise comes from `index.html`, so a reload picks it up.
 
-Reinstalling or upgrading `@deepseek-ai/dsh-web-frontend` replaces `dist/` and the
-rebrand is lost; re-run `node rebrand/apply-rebrand.mjs`. The bundle's
-content-hashed filename changes on upgrade, which is why the patcher reads the
-filename out of `index.html` rather than hardcoding it.
+Reinstalling or upgrading `@deepseek-ai/dsh-web-frontend` replaces `dist/`. With the
+plugin installed there is nothing to do — the next boot reapplies it. Without the
+plugin, re-run `node rebrand/apply-rebrand.mjs`. The bundle's content-hashed
+filename changes on upgrade, which is why the patcher reads the filename out of
+`index.html` rather than hardcoding it.
 
 ## Rolling back
 
+Restore the pre-patch copies and reload:
+
 ```sh
-# backups/ holds the pre-patch file for every artifact this tooling touched
-copy rebrand\backups\index-<hash>.js.orig-backup  <dist>\assets\index-<hash>.js
-copy rebrand\backups\index.html.orig-backup       <dist>\index.html
-copy rebrand\backups\manifest.webmanifest.orig-backup <dist>\manifest.webmanifest
-copy rebrand\backups\favicon.svg.orig-backup      <dist>\favicon.svg
+# lib/backups/ holds the pre-patch file for every artifact this tooling touched
+copy rebrand\lib\backups\index-<hash>.js.orig-backup  <dist>\assets\index-<hash>.js
+copy rebrand\lib\backups\index.html.orig-backup       <dist>\index.html
+copy rebrand\lib\backups\manifest.webmanifest.orig-backup <dist>\manifest.webmanifest
+copy rebrand\lib\backups\favicon.svg.orig-backup      <dist>\favicon.svg
 ```
 
-Backups live in `rebrand/backups/` (git-ignored) rather than beside the live
+Then, if the plugin is installed, disable it — otherwise the next boot puts the
+rebrand straight back:
+
+```yaml
+- id: rebrand
+  config:
+    enabled: false
+```
+
+Backups live in `rebrand/lib/backups/` (git-ignored) rather than beside the live
 files on purpose: the frontend-static server serves **any** file under `dist/`
 whose extension it does not recognize as `application/octet-stream`, so a backup
 left in `dist/assets/` would be downloadable from `/assets/…` — an orphaned copy
@@ -146,7 +207,7 @@ of the brand that was just removed, reachable by URL.
 
 ## Renaming it to something else
 
-`APP_NAME` in `patch-web-shell.mjs` sets the title and manifest name, and
-`HARNESS_WORDMARK` in `patch-web-brand.mjs` carries the uppercase in-app wordmark.
-Change both, then re-run against a pristine bundle (restore a backup first) — the
-"already patched" detection keys on the default name.
+`APP_NAME` in `lib/patch-web-shell.mjs` sets the title and manifest name, and
+`HARNESS_WORDMARK` in `lib/patch-web-brand.mjs` carries the uppercase in-app
+wordmark. Change both, then re-run against a pristine bundle (restore a backup
+first) — the "already patched" detection keys on the default name.

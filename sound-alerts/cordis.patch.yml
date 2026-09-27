@@ -1,0 +1,14 @@
+# The sound-alerts bundle patch: the composition layer this package contributes.
+#
+# A profile that lists `dsh-sound-alerts` in its `dsh.profile.bundles` applies
+# this file as one layer, so the row below is what mounts the plugin. The row
+# names the package (not a path) on purpose: Node resolution then finds the
+# installed copy — `<profile>/node_modules/dsh-sound-alerts` — which is the same
+# resolution the official client-package rows use.
+#
+# The browser half arrives through this package's own `dsh.client` declaration
+# and `exports["./client"]`; nothing else has to be wired.
+
+- insert:
+    - id: sound-alerts
+      name: dsh-sound-alerts
