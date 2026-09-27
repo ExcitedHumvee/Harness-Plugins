@@ -1,8 +1,8 @@
 {
   "name": "dsh-sound-alerts",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Notification sounds for the DSH Web GUI: a cue when a final response completes and another when the agent is waiting on you, each able to repeat until you respond, with a header control for customizing both",
+  "description": "Notification sounds for the DSH Web GUI: a cue when a final response completes and another when the agent is waiting on you, each repeating until you respond and each flashing the screen, with a header control for customizing both",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

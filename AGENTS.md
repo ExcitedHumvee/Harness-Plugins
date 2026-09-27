@@ -14,7 +14,7 @@ a failure — the failure sections say what each one means.
 
 | Plugin | Package | Kind | Result |
 |---|---|---|---|
-| `sound-alerts/` | `dsh-sound-alerts` | Bundle, with a browser (`dsh.client`) half | A speaker control in the session header; a cue when a response completes and when input is needed, each able to repeat every minute until you respond |
+| `sound-alerts/` | `dsh-sound-alerts` | Bundle, with a browser (`dsh.client`) half | A speaker control in the session header; a cue when a response completes and when input is needed, each repeating every minute until you respond and each flashing the screen |
 | `rebrand/` | `dsh-rebrand` | Bundle, host-only | The DeepSeek wordmark/logo go away; title, manifest, and favicon become **Harness**, reapplied automatically at every boot |
 
 Both are **bundles**: npm packages whose `package.json` declares
@@ -191,9 +191,9 @@ A `404` on a bundle install means the row did not compose; check
    page (Ctrl+Shift+R).
 2. Tell them where to look:
    - `sound-alerts`: a speaker button in the session header utilities, opening a
-     panel with the master switch, volume, minimum turn length, per-cue
-     sound/repeat/gap, the per-cue "repeat until you respond" reminder and its
-     interval, Test, and Reset. Preferences are browser-local.
+     panel with the master switch, volume, the screen-flash switch, minimum turn
+     length, per-cue sound/repeat/gap, the per-cue "repeat until you respond"
+     reminder and its interval, Test, and Reset. Preferences are browser-local.
    - `rebrand`: the browser tab reads **Harness** and the favicon is a neutral
      rounded-square "H".
 3. Mention the one cache quirk: if the tab title or favicon still looks old, the

@@ -22,6 +22,11 @@
  * next turn starts (the user replied). Both the switch and the interval are in
  * the panel, per cue.
  *
+ * Every cue also **flashes the screen** — a brief full-viewport pulse keyed to
+ * each firing, so it is visible as well as audible and a cue set to `Silent` is
+ * still seen. Reminders flash on every repetition, and the preference and the
+ * master switch apply to the flash exactly as they do to the sound.
+ *
  * Both signals are already on the standard Session props, so the plugin watches
  * no transport, subscribes to no event bus, and sends no requests: it is a pure
  * consumer of state the shell already maintains.
@@ -75,6 +80,9 @@ window.__ModuleLoader__.load({
 .dsh-sound-alerts__button:hover{border-color:var(--dsw-alias-border-l1)}
 .dsh-sound-alerts__button:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 .dsh-sound-alerts__footer{margin-top:8px;color:var(--dsw-alias-label-caption);font-size:11px;line-height:16px}
+.dsh-sound-alerts__flash{--dsh-sound-alerts-flash-peak:.3;position:fixed;inset:0;z-index:2147483000;pointer-events:none;background:var(--dsw-alias-state-success-primary,currentColor);box-shadow:inset 0 0 0 3px var(--dsw-alias-state-success-primary,currentColor);opacity:0;animation:dsh-sound-alerts-flash 700ms ease-out}
+@keyframes dsh-sound-alerts-flash{0%{opacity:var(--dsh-sound-alerts-flash-peak,.3)}70%{opacity:calc(var(--dsh-sound-alerts-flash-peak,.3) / 3)}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.dsh-sound-alerts__flash{--dsh-sound-alerts-flash-peak:.12;box-shadow:none;animation-duration:1200ms}}
 `;
     const tagId = "dsh-sound-alerts/sound-alerts.css";
     if (
@@ -123,6 +131,7 @@ window.__ModuleLoader__.load({
     const DEFAULTS = {
       enabled: true,
       volume: 0.5,
+      flash: true,
       minTurnMs: 1000,
       turnComplete: { sound: "chime", repeat: 1, gapMs: 250, remind: false, remindMs: 60000 },
       needsInput: { sound: "ping", repeat: 2, gapMs: 180, remind: true, remindMs: 60000 },
@@ -177,6 +186,7 @@ window.__ModuleLoader__.load({
       return {
         enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULTS.enabled,
         volume: clampNumber("volume", source.volume ?? DEFAULTS.volume),
+        flash: typeof source.flash === "boolean" ? source.flash : DEFAULTS.flash,
         minTurnMs: Math.round(clampNumber("minTurnMs", source.minTurnMs ?? DEFAULTS.minTurnMs)),
         turnComplete: normalizeCue("turnComplete", source.turnComplete),
         needsInput: normalizeCue("needsInput", source.needsInput),
@@ -295,10 +305,17 @@ window.__ModuleLoader__.load({
      * consulted here — the panel must be able to preview a cue while alerts are
      * switched off. The alert watchers gate on `enabled` instead.
      *
+     * `notify` is called for every cue that fires, before the audible half is
+     * resolved: the screen flash is a channel of its own, so a cue set to
+     * `Silent`, or one whose volume is zero, still lights the screen. Whether a
+     * flash is wanted at all is the caller's decision, not this function's.
+     *
      * @param settings - current settings.
      * @param cue - which cue to play.
+     * @param notify - optional callback signalling that the cue fired.
      */
-    function play(settings, cue) {
+    function play(settings, cue, notify) {
+      if (typeof notify === "function") notify(cue);
       const spec = settings[cue];
       const recipe = RECIPES[spec.sound];
       if (recipe === undefined || settings.volume <= 0) return;
@@ -338,9 +355,10 @@ window.__ModuleLoader__.load({
      *
      * @param latest - ref holding the current settings.
      * @param cue - which cue to replay.
+     * @param notify - callback signalling that the cue fired, passed through to `play`.
      * @returns a disposer that stops the reminder.
      */
-    function startReminder(latest, cue) {
+    function startReminder(latest, cue, notify) {
       let timer = null;
       let stopped = false;
 
@@ -351,7 +369,7 @@ window.__ModuleLoader__.load({
         timer = window.setTimeout(() => {
           timer = null;
           if (stopped) return;
-          play(latest.current, cue);
+          play(latest.current, cue, notify);
           schedule();
         }, delay);
       };
@@ -376,9 +394,10 @@ window.__ModuleLoader__.load({
      * @param session - the standard `useSession` selector hook.
      * @param sessionId - current Session identity.
      * @param settings - current settings.
+     * @param notify - stable callback signalling that a cue fired.
      * @returns the timestamp the current running stretch began, or null.
      */
-    function useCompletionAlert(session, sessionId, settings) {
+    function useCompletionAlert(session, sessionId, settings, notify) {
       const running = session((snapshot) => snapshot.running);
       const runningSince = react.useRef(null);
       const wasRunning = react.useRef(false);
@@ -413,7 +432,7 @@ window.__ModuleLoader__.load({
         runningSince.current = null;
         if (!observed || startedAt === null) return;
         if (Date.now() - startedAt < latest.current.minTurnMs) return;
-        play(latest.current, "turnComplete");
+        play(latest.current, "turnComplete", notify);
         awaitingReply.current = true;
       }, [running, sessionId]);
 
@@ -423,7 +442,7 @@ window.__ModuleLoader__.load({
       const remind = settings.turnComplete.remind;
       react.useEffect(() => {
         if (running === true || awaitingReply.current !== true || remind !== true) return undefined;
-        return startReminder(latest, "turnComplete");
+        return startReminder(latest, "turnComplete", notify);
       }, [running, sessionId, remind]);
 
       return runningSince;
@@ -439,8 +458,9 @@ window.__ModuleLoader__.load({
      * @param pending - the standard `useSessionPendingInteraction` hook.
      * @param sessionId - current Session identity.
      * @param settings - current settings.
+     * @param notify - stable callback signalling that a cue fired.
      */
-    function useInputAlert(pending, sessionId, settings) {
+    function useInputAlert(pending, sessionId, settings, notify) {
       const interaction = pending((snapshot) => snapshot.get(sessionId));
       const key = interaction === undefined ? null : interaction.key;
       const latest = react.useRef(settings);
@@ -448,7 +468,7 @@ window.__ModuleLoader__.load({
 
       react.useEffect(() => {
         if (key === null) return;
-        play(latest.current, "needsInput");
+        play(latest.current, "needsInput", notify);
       }, [key, sessionId]);
 
       // The reminder: while the request is unanswered it keeps playing, and
@@ -456,7 +476,7 @@ window.__ModuleLoader__.load({
       const remind = settings.needsInput.remind;
       react.useEffect(() => {
         if (key === null || remind !== true) return undefined;
-        return startReminder(latest, "needsInput");
+        return startReminder(latest, "needsInput", notify);
       }, [key, sessionId, remind]);
 
       return key;
@@ -516,6 +536,8 @@ window.__ModuleLoader__.load({
       "panel.title": "提示音",
       "panel.master": "启用提示音",
       "panel.volume": "音量",
+      "panel.flash": "屏幕闪烁",
+      "panel.flashHint": "每次提示音都会让屏幕短暂闪烁，设为静音的提示也会闪烁。",
       "panel.minTurn": "最短回合时长",
       "panel.minTurnHint": "回合短于此时长不播放提示音（毫秒）。",
       "panel.complete": "最终回复完成时",
@@ -546,6 +568,8 @@ window.__ModuleLoader__.load({
       "panel.title": "Alert sounds",
       "panel.master": "Enable alert sounds",
       "panel.volume": "Volume",
+      "panel.flash": "Flash the screen",
+      "panel.flashHint": "A brief full-screen pulse with every cue, including a Silent one.",
       "panel.minTurn": "Minimum turn length",
       "panel.minTurnHint": "Turns shorter than this stay silent, in milliseconds.",
       "panel.complete": "When a final response completes",
@@ -738,6 +762,25 @@ window.__ModuleLoader__.load({
             children: [
               jsx("label", {
                 className: "dsh-sound-alerts__label",
+                htmlFor: "dsh-sound-alerts-flash",
+                children: t("panel.flash"),
+              }),
+              jsx("input", {
+                id: "dsh-sound-alerts-flash",
+                type: "checkbox",
+                checked: settings.flash,
+                onChange: (event) => {
+                  onPatch({ flash: event.target.checked });
+                },
+              }),
+            ],
+          }),
+          jsx("div", { className: "dsh-sound-alerts__hint", children: t("panel.flashHint") }),
+          jsxs("div", {
+            className: "dsh-sound-alerts__row",
+            children: [
+              jsx("label", {
+                className: "dsh-sound-alerts__label",
                 htmlFor: "dsh-sound-alerts-min-turn",
                 children: t("panel.minTurn"),
               }),
@@ -805,6 +848,7 @@ window.__ModuleLoader__.load({
       const [settings, setSettings] = react.useState(loadSettings);
       const [open, setOpen] = react.useState(false);
       const [cueing, setCueing] = react.useState(false);
+      const [flashToken, setFlashToken] = react.useState(0);
       const rootRef = react.useRef(null);
       const cueTimer = react.useRef(null);
 
@@ -818,13 +862,32 @@ window.__ModuleLoader__.load({
         });
       }, []);
 
+      // The latest settings, for callbacks that must not change identity when a
+      // preference is edited: a new callback would re-run the watcher effects and
+      // restart a reminder that was already counting down.
+      const settingsRef = react.useRef(settings);
+      settingsRef.current = settings;
+
+      // The visual pulse. One element per animation, keyed by this counter, so a
+      // remount restarts the CSS animation and no timer has to own its duration.
+      // The header button lights up on the same edge.
       const flash = react.useCallback(() => {
+        setFlashToken((token) => token + 1);
         setCueing(true);
         if (cueTimer.current !== null) window.clearTimeout(cueTimer.current);
         cueTimer.current = window.setTimeout(() => {
           setCueing(false);
         }, 500);
       }, []);
+
+      // What the alert paths call. A cue that fired while the master switch is off
+      // is not an alert, so neither is its flash; otherwise the flash preference
+      // alone decides.
+      const alertFlash = react.useCallback(() => {
+        const current = settingsRef.current;
+        if (current.enabled !== true || current.flash !== true) return;
+        flash();
+      }, [flash]);
 
       react.useEffect(
         () => () => {
@@ -838,8 +901,8 @@ window.__ModuleLoader__.load({
       // hooks: hooks must run unconditionally, and a zero volume is the same
       // thing to `play` while keeping the call sites identical.
       const audible = live ? settings : { ...settings, volume: 0 };
-      useCompletionAlert(useSession, sessionId, audible);
-      useInputAlert(useSessionPendingInteraction, sessionId, audible);
+      useCompletionAlert(useSession, sessionId, audible, alertFlash);
+      useInputAlert(useSessionPendingInteraction, sessionId, audible, alertFlash);
 
       react.useEffect(() => {
         if (!open) return undefined;
@@ -875,6 +938,20 @@ window.__ModuleLoader__.load({
           (cueing ? " dsh-sound-alerts--cue" : ""),
         "data-sound-alerts": live ? "on" : "off",
         children: [
+          // Keyed by the counter so each cue mounts a fresh element and the
+          // animation replays from the top; the fixed positioning lifts it out of
+          // the header without a portal, and `pointer-events:none` keeps it from
+          // ever swallowing a click.
+          flashToken > 0 &&
+            jsx(
+              "span",
+              {
+                className: "dsh-sound-alerts__flash",
+                "aria-hidden": true,
+                "data-sound-alerts-flash": "",
+              },
+              flashToken,
+            ),
           jsx(Tooltip, {
             label: status,
             side: "bottom",
@@ -903,8 +980,10 @@ window.__ModuleLoader__.load({
                 setSettings(next);
               },
               onTest: (cue) => {
+                // A preview shows what the cue will do, so it plays while alerts
+                // are off — but the flash preference still decides the visual half.
                 play(settings, cue);
-                flash();
+                if (settings.flash === true) flash();
               },
             }),
         ],

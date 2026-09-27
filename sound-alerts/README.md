@@ -7,8 +7,9 @@ Notification sounds for the DSH Web GUI. Two cues, one header control:
 
 Either cue can also keep reminding: it replays on an interval — one minute by
 default — until you respond, so a cue that fires while you are away from the desk
-does not go unheard. The speaker button sits in the session header utilities and
-opens a panel that customizes all of it.
+does not go unheard. And every cue flashes the screen, so it is seen as well as
+heard. The speaker button sits in the session header utilities and opens a panel
+that customizes all of it.
 
 ## The control
 
@@ -17,6 +18,7 @@ opens a panel that customizes all of it.
 | Speaker button | Shows whether alerts are armed; click to open the panel |
 | Enable alert sounds | Master switch. Off silences both cues but keeps the setup |
 | Volume | 0–100%, applied to every cue (default 50%) |
+| Flash the screen | A brief full-viewport pulse with every cue, including one set to `Silent` (default on) |
 | Minimum turn length | Turns shorter than this stay silent (ms, default 1000). The floor keeps a rejected or empty turn from beeping |
 | Per cue: Sound | `Silent`, `Chime`, `Ping`, `Drop`, `Blip`, `Double`, `Pulse` |
 | Per cue: Repeat / Gap | How many times the cue plays (1–5), and the spacing between repeats (ms) |
@@ -26,7 +28,8 @@ opens a panel that customizes all of it.
 | Reset | Restores the defaults |
 
 Defaults are deliberately audible: a completion `Chime` once, and a `Ping`
-twice for "your input is needed", reminding once a minute until you answer.
+twice for "your input is needed", reminding once a minute until you answer, with
+the screen flashing on every one of them.
 
 The button dims to a crossed-out speaker when alerts are off, and flashes in the
 success color while a cue plays.
@@ -65,6 +68,31 @@ The loop is one `setTimeout` chain rather than `setInterval`, so a slow or
 throttled background tab cannot stack repetitions on top of each other — a
 browser that throttles a hidden tab to one timer per minute lands exactly on the
 default interval.
+
+## Flashing the screen
+
+A sound is no use if the machine is muted, so every cue also lights the screen: a
+full-viewport tint of the theme's success color with a bright inner border, fading
+out over 700 ms. It is `pointer-events: none`, so it can never swallow a click,
+and `prefers-reduced-motion` swaps it for a slower, fainter fade with no border —
+gentler, not absent, because the flash is the feature.
+
+Three properties are worth knowing:
+
+| Behaviour | Why |
+|---|---|
+| It restarts on every firing | The overlay is one element **keyed by a counter**, so a repetition mounts a fresh node and the CSS animation replays from the top. No timer owns the duration, which is why nothing has to be cancelled or kept in sync with the sound |
+| It is a channel of its own | `play` is handed a `notify` callback that runs *before* the audible half is resolved, so a cue set to `Silent`, or one at zero volume, still flashes. The master switch silences both halves |
+| It arrives without a gesture | Unlike the `AudioContext`, a CSS animation is not gated by the browser's autoplay rule, so the very first cue is visible even before the page has been clicked |
+
+The overlay is `position: fixed` inside the header occupant rather than portaled
+into `document.body`: a portal would mean depending on `react-dom` inside the
+client bundle, and a fixed element needs no more than the viewport to escape the
+header's layout.
+
+The reminders flash too, which is the point — a minute-by-minute pulse is what
+catches your eye from across the room, and each repetition re-mounts the overlay
+so it pulses rather than fading once.
 
 ## What it listens to
 
@@ -151,8 +179,9 @@ both dictionaries staying key-complete, the panel's controls and their stored
 values, the completion edge and its guards, the input-needed edge and its keying,
 customization and persistence, the reminder loop — that it waits out its interval,
 repeats, and stops on an answer, on a reply, on a Session switch, and when it is
-switched off, muted, or floored — the test button, reset, and seven malformed
-stored payloads.
+switched off, muted, or floored — the screen flash through every path that can
+produce one and every preference that suppresses one, the test button, reset, and
+seven malformed stored payloads.
 
 The clock is what makes the reminder testable: a real timer would cost a minute
 per repetition, and "nothing replays before the interval elapses" would be

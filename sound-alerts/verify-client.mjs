@@ -424,6 +424,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const baseSettings = JSON.parse(JSON.stringify({
   enabled: true,
   volume: 0.5,
+  flash: true,
   minTurnMs: 0,
   turnComplete: { sound: 'chime', repeat: 1, gapMs: 250, remind: false, remindMs: 60000 },
   needsInput: { sound: 'ping', repeat: 2, gapMs: 180, remind: true, remindMs: 60000 },
@@ -572,8 +573,10 @@ console.log('\nrendering');
   check('offers the minimum-turn field and repeat/gap/reminder per cue', numbers.length === 7, String(numbers.length));
   check('the minimum-turn field comes first', numbers[0]?.props?.['aria-label'] === undefined && numbers[0]?.props.id === 'dsh-sound-alerts-min-turn');
   check('each cue labels its repeat, gap, and reminder fields', numbers.filter((node) => typeof node.props['aria-label'] === 'string').length === 6);
-  check('offers the master switch plus a reminder switch per cue', checkboxes.length === 3, String(checkboxes.length));
-  check('the reminder switches are labelled and bound to their inputs', checkboxes[1]?.props.id === 'dsh-sound-alerts-remind-turnComplete' && checkboxes[2]?.props.id === 'dsh-sound-alerts-remind-needsInput');
+  check('offers the master switch, the flash switch, and a reminder switch per cue', checkboxes.length === 4, String(checkboxes.length));
+  check('the flash switch is labelled and bound to its input', checkboxes[1]?.props.id === 'dsh-sound-alerts-flash');
+  check('the flash switch is on by default', checkboxes[1]?.props.checked === true);
+  check('the reminder switches are labelled and bound to their inputs', checkboxes[2]?.props.id === 'dsh-sound-alerts-remind-turnComplete' && checkboxes[3]?.props.id === 'dsh-sound-alerts-remind-needsInput');
   check('offers a volume slider', ranges.length === 1);
   check('offers a test button per cue', open.filter((node) => node.type === 'button' && node.props.children === 'Test').length === 2);
   check('offers a reset button', open.filter((node) => node.type === 'button' && node.props.children === 'Reset').length === 1);
@@ -584,10 +587,11 @@ console.log('\nrendering');
   check('the first cue shows its stored repeat', numbers[1]?.props.value === 1, String(numbers[1]?.props.value));
   // Field order per cue is [repeat, gap, reminder interval], the interval in seconds.
   check('the completion cue shows its stored reminder interval', numbers[3]?.props.value === 60, String(numbers[3]?.props.value));
-  check('the completion cue reminder is off by default', checkboxes[1]?.props.checked === false);
+  check('the completion cue reminder is off by default', checkboxes[2]?.props.checked === false);
   check('the input cue shows its stored reminder interval', numbers[6]?.props.value === 60, String(numbers[6]?.props.value));
-  check('the input cue reminder is armed by default', checkboxes[2]?.props.checked === true);
+  check('the input cue reminder is armed by default', checkboxes[3]?.props.checked === true);
   check('the panel explains what the reminder does', open.some((node) => String(node.props?.children).includes('stops as soon as you respond')));
+  check('the panel explains what the flash does', open.some((node) => String(node.props?.children).includes('including a Silent one')));
 }
 
 currentTest = 'no session';
@@ -786,7 +790,7 @@ console.log('\nreminder customization');
 
   // Switching the reminder off stops a running loop without waiting it out.
   const checkboxes = () => renderFlat(propsFor(state)).filter((node) => node.type === 'input' && node.props.type === 'checkbox');
-  fire(checkboxes()[2].props.onChange, { target: { checked: false } });
+  fire(checkboxes()[3].props.onChange, { target: { checked: false } });
   check('the reminder switch is persisted', persisted()?.needsInput.remind === false, JSON.stringify(persisted()?.needsInput));
   render(propsFor(state));
   audioLog = [];
@@ -794,11 +798,93 @@ console.log('\nreminder customization');
   check('switching the reminder off stops it immediately', audioLog.length === 0, `notes=${String(audioLog.length)}`);
 
   // ...and switching it back on re-arms a request that is still open.
-  fire(checkboxes()[2].props.onChange, { target: { checked: true } });
+  fire(checkboxes()[3].props.onChange, { target: { checked: true } });
   render(propsFor(state));
   audioLog = [];
   advance(15000);
   check('switching it back on resumes the loop', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+}
+
+currentTest = 'screen flash';
+console.log('\nscreen flash');
+{
+  const state = { sessionId: 'session-a', running: false, interactionKey: null };
+  const flashes = () => elements(render(propsFor(state))).filter((node) => node.props?.className === 'dsh-sound-alerts__flash');
+
+  freshInstance(state);
+  check('nothing flashes before a cue fires', flashes().length === 0, String(flashes().length));
+
+  // A pending request flashes, and keeps its sound.
+  audioLog = [];
+  state.interactionKey = 'approval-1';
+  render(propsFor(state));
+  check('the request still cues audibly', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+  const first = flashes();
+  check('the request flashes the screen', first.length === 1, String(first.length));
+  check('the flash is decorative and marked for styling', first[0]?.props['aria-hidden'] === true && first[0]?.props['data-sound-alerts-flash'] === '');
+  const flashCss = String(documentStub.head.children[0]?.textContent);
+  check('the flash is styled full-viewport and click-through', flashCss.includes('.dsh-sound-alerts__flash{') && flashCss.includes('position:fixed;inset:0') && flashCss.includes('pointer-events:none'));
+  check('the flash animation honours reduced motion', flashCss.includes('prefers-reduced-motion:reduce'));
+
+  // Every reminder repetition flashes again, on a new element, so the animation
+  // restarts instead of being reconciled away as an unchanged tree.
+  advance(60000);
+  const second = flashes();
+  check('a reminder repetition flashes again', second.length === 1, String(second.length));
+  check('the flash remounts so the animation restarts', second[0]?.key !== first[0]?.key, `${String(first[0]?.key)} -> ${String(second[0]?.key)}`);
+
+  // The preference switches the visual half off without touching the audible one.
+  resetTree();
+  storage.set(settingsKey, JSON.stringify({ ...baseSettings, flash: false }));
+  render(propsFor(state));
+  audioLog = [];
+  state.interactionKey = 'question-7';
+  render(propsFor(state));
+  check('the cue still plays with the flash off', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+  check('the flash preference silences the screen', flashes().length === 0, String(flashes().length));
+
+  // The master switch silences both halves of a cue.
+  resetTree();
+  storage.set(settingsKey, JSON.stringify({ ...baseSettings, enabled: false }));
+  render(propsFor(state));
+  audioLog = [];
+  state.interactionKey = 'question-8';
+  render(propsFor(state));
+  check('the master switch silences the screen as well as the sound', flashes().length === 0 && audioLog.length === 0);
+
+  // A zero volume is a muted cue, not a silenced one: the screen still lights.
+  resetTree();
+  storage.set(settingsKey, JSON.stringify({ ...baseSettings, volume: 0 }));
+  render(propsFor(state));
+  state.interactionKey = 'question-9';
+  render(propsFor(state));
+  check('a zero volume still flashes', flashes().length === 1, String(flashes().length));
+
+  // And a cue set to Silent is exactly what a visual channel is for.
+  resetTree();
+  storage.set(settingsKey, JSON.stringify({ ...baseSettings, needsInput: { ...baseSettings.needsInput, sound: 'silent' } }));
+  render(propsFor(state));
+  audioLog = [];
+  state.interactionKey = 'question-10';
+  render(propsFor(state));
+  check('a Silent cue still flashes', audioLog.length === 0 && flashes().length === 1, `notes=${String(audioLog.length)}`);
+
+  // The test button previews the visual half too, and the preference still rules.
+  resetTree();
+  state.interactionKey = null;
+  storage.set(settingsKey, JSON.stringify({ ...baseSettings, enabled: false, flash: true }));
+  render(propsFor(state));
+  fire(renderFlat(propsFor(state)).filter((node) => node.type === 'button')[0].props.onClick);
+  const testButtons = () => renderFlat(propsFor(state)).filter((node) => node.type === 'button' && node.props.children === 'Test');
+  fire(testButtons()[0].props.onClick);
+  check('Test flashes while alerts are off', flashes().length === 1, String(flashes().length));
+
+  storage.set(settingsKey, JSON.stringify({ ...baseSettings, flash: false }));
+  resetTree();
+  render(propsFor(state));
+  fire(renderFlat(propsFor(state)).filter((node) => node.type === 'button')[0].props.onClick);
+  fire(testButtons()[0].props.onClick);
+  check('Test respects the flash preference', flashes().length === 0, String(flashes().length));
 }
 
 currentTest = 'customization';
@@ -884,6 +970,7 @@ console.log('\ntest button and reset');
   fire(reset[0].props.onClick);
   const afterReset = persisted();
   check('reset restores the master switch', afterReset?.enabled === true);
+  check('reset restores the flash switch', afterReset?.flash === true);
   check('reset restores the volume', afterReset?.volume === 0.5, String(afterReset?.volume));
   check('reset restores the cue sounds', afterReset?.turnComplete.sound === 'chime' && afterReset?.needsInput.sound === 'ping');
   check('reset restores the reminder defaults', afterReset?.needsInput.remind === true && afterReset?.needsInput.remindMs === 60000 && afterReset?.turnComplete.remind === false, JSON.stringify({ turnComplete: afterReset?.turnComplete, needsInput: afterReset?.needsInput }));
@@ -899,7 +986,7 @@ console.log('\nstored payload hardening');
     ['an array', '[1,2,3]'],
     ['unknown sounds', JSON.stringify({ turnComplete: { sound: 'airhorn' }, needsInput: { sound: 5 } })],
     ['out-of-range numbers', JSON.stringify({ volume: 99, minTurnMs: -4000, turnComplete: { repeat: 0, gapMs: 99999 } })],
-    ['wrong field types', JSON.stringify({ enabled: 'yes', volume: 'loud' })],
+    ['wrong field types', JSON.stringify({ enabled: 'yes', volume: 'loud', flash: 'always' })],
     ['malformed reminders', JSON.stringify({ turnComplete: { remind: 'yes' }, needsInput: { remind: null, remindMs: 1 } })],
   ]) {
     resetTree();
@@ -934,6 +1021,7 @@ console.log('\nstored payload hardening');
       && saved.needsInput.remindMs >= 10000 && saved.needsInput.remindMs <= 600000
       && saved.turnComplete.remindMs >= 10000 && saved.turnComplete.remindMs <= 600000;
     check(`${label} leaves a bounded reminder`, remindOk, JSON.stringify({ turnComplete: saved.turnComplete, needsInput: saved.needsInput }));
+    check(`${label} leaves a boolean flash preference`, typeof saved.flash === 'boolean', JSON.stringify(saved.flash));
   }
 
   // A silent cue is a first-class choice, not an error state.
