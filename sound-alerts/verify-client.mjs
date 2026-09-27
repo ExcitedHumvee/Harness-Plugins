@@ -14,7 +14,8 @@
  *   observable as data.
  *
  * The assertions cover the two alert triggers, the guards that keep them from
- * firing spuriously, volume/cue customization, persistence, and the copy.
+ * firing spuriously, volume/cue customization, the repeating reminder and the
+ * clock that ends it, persistence, and the copy.
  *
  * Usage: node verify-client.mjs
  */
@@ -120,6 +121,46 @@ function makeAudioContext() {
   };
 }
 
+/**
+ * A controllable clock for the reminder timers.
+ *
+ * The plugin arms its repeats through `window.setTimeout`, and a reminder is by
+ * design a minute apart, so a real timer would make the reminder tests cost a
+ * minute per repetition. The stub records what was armed instead and `advance`
+ * fires what comes due, which also makes "nothing before the interval elapses"
+ * a thing that can be asserted rather than slept through.
+ */
+let clock = 0;
+let timerSeq = 0;
+/** Armed timers by id: `{ fn, at }`. */
+const timers = new Map();
+
+/**
+ * Advance the clock, running every timer that comes due, in time order.
+ * Timers armed by a timer that fires are picked up by the same sweep.
+ *
+ * @param ms - milliseconds to move forward.
+ */
+function advance(ms) {
+  const target = clock + ms;
+  for (let guard = 0; guard < 1000; guard += 1) {
+    let due = null;
+    for (const [id, timer] of timers) {
+      if (due === null || timer.at < due.timer.at) due = { id, timer };
+    }
+    if (due === null || due.timer.at > target) break;
+    clock = due.timer.at;
+    timers.delete(due.id);
+    due.timer.fn();
+  }
+  clock = target;
+}
+
+/** Drop every armed timer without running it. */
+function clearTimers() {
+  timers.clear();
+}
+
 const windowStub = {
   localStorage: {
     getItem: (key) => (storage.has(key) ? storage.get(key) : null),
@@ -131,8 +172,14 @@ const windowStub = {
     windowStub.__contexts = [...(windowStub.__contexts ?? []), makeAudioContext()];
     return windowStub.__contexts[windowStub.__contexts.length - 1];
   },
-  setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
-  clearTimeout: (handle) => globalThis.clearTimeout(handle),
+  setTimeout: (fn, ms) => {
+    timerSeq += 1;
+    timers.set(timerSeq, { fn, at: clock + (Number(ms) || 0) });
+    return timerSeq;
+  },
+  clearTimeout: (handle) => {
+    timers.delete(handle);
+  },
 };
 
 globalThis.window = windowStub;
@@ -284,6 +331,7 @@ function unmount() {
   hookStates.length = 0;
   hookIndex = 0;
   pendingEffects = [];
+  clearTimers();
 }
 
 /** Discard the whole component instance so the next render starts fresh. */
@@ -292,6 +340,7 @@ function resetTree() {
   hookStates.length = 0;
   hookIndex = 0;
   pendingEffects = [];
+  clearTimers();
 }
 
 const settingsKey = 'dsh-sound-alerts.settings.v1';
@@ -376,8 +425,8 @@ const baseSettings = JSON.parse(JSON.stringify({
   enabled: true,
   volume: 0.5,
   minTurnMs: 0,
-  turnComplete: { sound: 'chime', repeat: 1, gapMs: 250 },
-  needsInput: { sound: 'ping', repeat: 2, gapMs: 180 },
+  turnComplete: { sound: 'chime', repeat: 1, gapMs: 250, remind: false, remindMs: 60000 },
+  needsInput: { sound: 'ping', repeat: 2, gapMs: 180, remind: true, remindMs: 60000 },
 }));
 
 /** Seed a settings document, or clear it for the built-in defaults. */
@@ -518,11 +567,13 @@ console.log('\nrendering');
   const checkboxes = open.filter((node) => node.type === 'input' && node.props.type === 'checkbox');
   const ranges = open.filter((node) => node.type === 'input' && node.props.type === 'range');
   check('offers one sound picker per cue', selects.length === 2);
-  // One minimum-turn field plus a repeat and a gap for each of the two cues.
-  check('offers the minimum-turn field and repeat/gap per cue', numbers.length === 5, String(numbers.length));
+  // One minimum-turn field, then a repeat, a gap, and a reminder interval for
+  // each of the two cues.
+  check('offers the minimum-turn field and repeat/gap/reminder per cue', numbers.length === 7, String(numbers.length));
   check('the minimum-turn field comes first', numbers[0]?.props?.['aria-label'] === undefined && numbers[0]?.props.id === 'dsh-sound-alerts-min-turn');
-  check('each cue labels its repeat and gap fields', numbers.filter((node) => typeof node.props['aria-label'] === 'string').length === 4);
-  check('offers the master switch', checkboxes.length === 1);
+  check('each cue labels its repeat, gap, and reminder fields', numbers.filter((node) => typeof node.props['aria-label'] === 'string').length === 6);
+  check('offers the master switch plus a reminder switch per cue', checkboxes.length === 3, String(checkboxes.length));
+  check('the reminder switches are labelled and bound to their inputs', checkboxes[1]?.props.id === 'dsh-sound-alerts-remind-turnComplete' && checkboxes[2]?.props.id === 'dsh-sound-alerts-remind-needsInput');
   check('offers a volume slider', ranges.length === 1);
   check('offers a test button per cue', open.filter((node) => node.type === 'button' && node.props.children === 'Test').length === 2);
   check('offers a reset button', open.filter((node) => node.type === 'button' && node.props.children === 'Reset').length === 1);
@@ -531,6 +582,12 @@ console.log('\nrendering');
   check('the volume slider reflects the stored value', ranges[0]?.props.value === 50, String(ranges[0]?.props.value));
   check('the minimum-turn field reflects the stored value', numbers[0]?.props.value === 0, String(numbers[0]?.props.value));
   check('the first cue shows its stored repeat', numbers[1]?.props.value === 1, String(numbers[1]?.props.value));
+  // Field order per cue is [repeat, gap, reminder interval], the interval in seconds.
+  check('the completion cue shows its stored reminder interval', numbers[3]?.props.value === 60, String(numbers[3]?.props.value));
+  check('the completion cue reminder is off by default', checkboxes[1]?.props.checked === false);
+  check('the input cue shows its stored reminder interval', numbers[6]?.props.value === 60, String(numbers[6]?.props.value));
+  check('the input cue reminder is armed by default', checkboxes[2]?.props.checked === true);
+  check('the panel explains what the reminder does', open.some((node) => String(node.props?.children).includes('stops as soon as you respond')));
 }
 
 currentTest = 'no session';
@@ -622,6 +679,128 @@ console.log('\ninput-needed cue');
   check('answering the request stays silent', audioLog.length === 0);
 }
 
+currentTest = 'input reminder';
+console.log('\ninput reminder');
+{
+  // The default: a request waiting on the user reminds once a minute.
+  const state = { sessionId: 'session-a', running: false, interactionKey: null };
+  freshInstance(state);
+  audioLog = [];
+  render(propsFor({ ...state, interactionKey: 'approval-1' }));
+  check('the request cues immediately', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+
+  advance(59999);
+  check('nothing replays before the interval elapses', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+
+  advance(1);
+  check('the cue replays one minute later', audioLog.length === 4, `notes=${String(audioLog.length)}`);
+
+  advance(60000);
+  check('and again on the next interval', audioLog.length === 6, `notes=${String(audioLog.length)}`);
+
+  // Answering the request is what ends it.
+  render(propsFor({ ...state, interactionKey: null }));
+  audioLog = [];
+  advance(300000);
+  check('answering the request stops the reminder', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+
+  // A replacement request arms its own schedule.
+  audioLog = [];
+  render(propsFor({ ...state, interactionKey: 'question-2' }));
+  check('a replacement request cues immediately', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+  advance(60000);
+  check('and reminds on its own schedule', audioLog.length === 4, `notes=${String(audioLog.length)}`);
+
+  // Navigating away retires the reminder with the Session.
+  render(propsFor({ sessionId: 'session-b', running: false, interactionKey: null }));
+  audioLog = [];
+  advance(300000);
+  check('a reminder does not survive a Session switch', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+}
+
+currentTest = 'completion reminder';
+console.log('\ncompletion reminder');
+{
+  const state = { sessionId: 'session-a', running: false, interactionKey: null };
+
+  // Off by default: a finished turn does not nag.
+  freshInstance(state);
+  audioLog = [];
+  render(propsFor({ ...state, running: true }));
+  render(propsFor({ ...state, running: false }));
+  check('a finished turn cues once by default', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+  advance(300000);
+  check('the completion cue does not remind by default', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+
+  // Switched on, it repeats until the user replies.
+  resetTree();
+  seedSettings({ ...baseSettings, turnComplete: { ...baseSettings.turnComplete, remind: true } });
+  render(propsFor(state));
+  audioLog = [];
+  render(propsFor({ ...state, running: true }));
+  render(propsFor({ ...state, running: false }));
+  check('the completion cue plays at the edge', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+  advance(60000);
+  check('it reminds one interval later', audioLog.length === 4, `notes=${String(audioLog.length)}`);
+  advance(120000);
+  check('and keeps reminding until the user replies', audioLog.length === 8, `notes=${String(audioLog.length)}`);
+
+  audioLog = [];
+  render(propsFor({ ...state, running: true }));
+  advance(300000);
+  check('replying stops the completion reminder', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+
+  // A turn silenced by the floor leaves nothing to remind about.
+  resetTree();
+  seedSettings({ ...baseSettings, minTurnMs: 60000, turnComplete: { ...baseSettings.turnComplete, remind: true } });
+  render(propsFor(state));
+  audioLog = [];
+  render(propsFor({ ...state, running: true }));
+  render(propsFor({ ...state, running: false }));
+  advance(300000);
+  check('a turn under the floor never reminds', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+}
+
+currentTest = 'reminder customization';
+console.log('\nreminder customization');
+{
+  const state = { sessionId: 'session-a', running: false, interactionKey: null };
+  freshInstance(state);
+  fire(renderFlat(propsFor(state)).filter((node) => node.type === 'button')[0].props.onClick);
+
+  // The interval is edited in seconds and stored in milliseconds.
+  const numbers = () => renderFlat(propsFor(state)).filter((node) => node.type === 'input' && node.props.type === 'number');
+  fire(numbers()[6].props.onChange, { target: { value: '15' } });
+  check('the reminder interval is persisted in milliseconds', persisted()?.needsInput.remindMs === 15000, String(persisted()?.needsInput.remindMs));
+  check('the field shows the interval in seconds', numbers()[6]?.props.value === 15, String(numbers()[6]?.props.value));
+  check('editing one reminder leaves the other alone', persisted()?.turnComplete.remindMs === 60000, String(persisted()?.turnComplete.remindMs));
+
+  audioLog = [];
+  state.interactionKey = 'approval-1';
+  render(propsFor(state));
+  check('the request cues immediately', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+  advance(15000);
+  check('the reminder honors the configured interval', audioLog.length === 4, `notes=${String(audioLog.length)}`);
+  advance(15000);
+  check('and repeats on it', audioLog.length === 6, `notes=${String(audioLog.length)}`);
+
+  // Switching the reminder off stops a running loop without waiting it out.
+  const checkboxes = () => renderFlat(propsFor(state)).filter((node) => node.type === 'input' && node.props.type === 'checkbox');
+  fire(checkboxes()[2].props.onChange, { target: { checked: false } });
+  check('the reminder switch is persisted', persisted()?.needsInput.remind === false, JSON.stringify(persisted()?.needsInput));
+  render(propsFor(state));
+  audioLog = [];
+  advance(300000);
+  check('switching the reminder off stops it immediately', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+
+  // ...and switching it back on re-arms a request that is still open.
+  fire(checkboxes()[2].props.onChange, { target: { checked: true } });
+  render(propsFor(state));
+  audioLog = [];
+  advance(15000);
+  check('switching it back on resumes the loop', audioLog.length === 2, `notes=${String(audioLog.length)}`);
+}
+
 currentTest = 'customization';
 console.log('\ncustomization');
 {
@@ -660,6 +839,8 @@ console.log('\ncustomization');
   render(propsFor({ ...state, running: false }));
   render(propsFor({ ...state, running: false, interactionKey: 'approval-1' }));
   check('zero volume silences both cues', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+  advance(300000);
+  check('zero volume silences the reminder too', audioLog.length === 0, `notes=${String(audioLog.length)}`);
 
   // The master switch silences both cues and shows as off.
   storage.set(settingsKey, JSON.stringify({ ...baseSettings, enabled: false }));
@@ -673,6 +854,8 @@ console.log('\ncustomization');
   render(propsFor({ ...state, running: false }));
   render(propsFor({ ...state, running: false, interactionKey: 'approval-1' }));
   check('disabled alerts stay silent for both cues', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+  advance(300000);
+  check('disabled alerts stay silent for the reminder too', audioLog.length === 0, `notes=${String(audioLog.length)}`);
 }
 
 currentTest = 'test button and reset';
@@ -703,6 +886,7 @@ console.log('\ntest button and reset');
   check('reset restores the master switch', afterReset?.enabled === true);
   check('reset restores the volume', afterReset?.volume === 0.5, String(afterReset?.volume));
   check('reset restores the cue sounds', afterReset?.turnComplete.sound === 'chime' && afterReset?.needsInput.sound === 'ping');
+  check('reset restores the reminder defaults', afterReset?.needsInput.remind === true && afterReset?.needsInput.remindMs === 60000 && afterReset?.turnComplete.remind === false, JSON.stringify({ turnComplete: afterReset?.turnComplete, needsInput: afterReset?.needsInput }));
 }
 
 currentTest = 'stored payload hardening';
@@ -716,6 +900,7 @@ console.log('\nstored payload hardening');
     ['unknown sounds', JSON.stringify({ turnComplete: { sound: 'airhorn' }, needsInput: { sound: 5 } })],
     ['out-of-range numbers', JSON.stringify({ volume: 99, minTurnMs: -4000, turnComplete: { repeat: 0, gapMs: 99999 } })],
     ['wrong field types', JSON.stringify({ enabled: 'yes', volume: 'loud' })],
+    ['malformed reminders', JSON.stringify({ turnComplete: { remind: 'yes' }, needsInput: { remind: null, remindMs: 1 } })],
   ]) {
     resetTree();
     storage.clear();
@@ -744,6 +929,11 @@ console.log('\nstored payload hardening');
     const controlLive = flat.filter((node) => node.type === 'button').length >= 1 && flat.some((node) => node.props?.role === 'dialog');
     check(`${label} leaves a working control and a usable document`, controlLive && volumeOk && repeatOk && soundOk, JSON.stringify(saved));
     check(`${label} keeps the user's edit`, saved.minTurnMs === 1500, String(saved.minTurnMs));
+    const remindOk = typeof saved.turnComplete.remind === 'boolean'
+      && typeof saved.needsInput.remind === 'boolean'
+      && saved.needsInput.remindMs >= 10000 && saved.needsInput.remindMs <= 600000
+      && saved.turnComplete.remindMs >= 10000 && saved.turnComplete.remindMs <= 600000;
+    check(`${label} leaves a bounded reminder`, remindOk, JSON.stringify({ turnComplete: saved.turnComplete, needsInput: saved.needsInput }));
   }
 
   // A silent cue is a first-class choice, not an error state.

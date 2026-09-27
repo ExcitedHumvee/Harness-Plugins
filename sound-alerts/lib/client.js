@@ -15,6 +15,13 @@
  *   replacement request alerts again while a re-render of the same request does
  *   not.
  *
+ * Either cue can additionally **remind**: it replays on an interval — one minute
+ * out of the box — until the user responds, which is the point of the feature
+ * when you have stepped away from the machine. A request stops reminding when it
+ * is answered (its interaction key clears), and a finished turn stops when the
+ * next turn starts (the user replied). Both the switch and the interval are in
+ * the panel, per cue.
+ *
  * Both signals are already on the standard Session props, so the plugin watches
  * no transport, subscribes to no event bus, and sends no requests: it is a pure
  * consumer of state the shell already maintains.
@@ -101,18 +108,24 @@ window.__ModuleLoader__.load({
       repeat: { min: 1, max: 5 },
       gapMs: { min: 0, max: 1500 },
       minTurnMs: { min: 0, max: 60000 },
+      remindMs: { min: 10000, max: 600000 },
     };
 
     /**
      * Settings shape and defaults. Enabling by default is deliberate: a
      * notification feature nobody notices is a feature nobody has.
+     *
+     * Reminding is on for a request that is waiting on the user — a cue that
+     * plays once while you are away from the desk is not a notification — and off
+     * for a finished turn, where a minute-by-minute chime after every reply would
+     * be noise rather than information. Both are one click away in the panel.
      */
     const DEFAULTS = {
       enabled: true,
       volume: 0.5,
       minTurnMs: 1000,
-      turnComplete: { sound: "chime", repeat: 1, gapMs: 250 },
-      needsInput: { sound: "ping", repeat: 2, gapMs: 180 },
+      turnComplete: { sound: "chime", repeat: 1, gapMs: 250, remind: false, remindMs: 60000 },
+      needsInput: { sound: "ping", repeat: 2, gapMs: 180, remind: true, remindMs: 60000 },
     };
 
     /**
@@ -131,6 +144,11 @@ window.__ModuleLoader__.load({
 
     /**
      * Narrow one cue's settings against the roster and bounds.
+     *
+     * A stored document written before reminding existed simply has no `remind`
+     * fields, and picks up the defaults for them here — which is why the storage
+     * key did not have to change.
+     *
      * @param cue - the cue name.
      * @param value - candidate settings.
      * @returns a complete, in-range cue setting.
@@ -142,6 +160,8 @@ window.__ModuleLoader__.load({
         sound: SOUNDS.includes(raw.sound) ? raw.sound : fallback.sound,
         repeat: Math.round(clampNumber("repeat", raw.repeat ?? fallback.repeat)),
         gapMs: Math.round(clampNumber("gapMs", raw.gapMs ?? fallback.gapMs)),
+        remind: typeof raw.remind === "boolean" ? raw.remind : fallback.remind,
+        remindMs: Math.round(clampNumber("remindMs", raw.remindMs ?? fallback.remindMs)),
       };
     }
 
@@ -302,6 +322,47 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * Replay one cue on an interval until the returned disposer runs.
+     *
+     * This is what keeps a cue audible when nobody is looking at the screen: the
+     * first repetition lands one interval after the cue itself, and every tick
+     * schedules the next one, so the loop lives exactly as long as its effect
+     * does — a cleanup, a dependency change, or an unmount ends it by clearing the
+     * one outstanding timer.
+     *
+     * The interval is re-read on every tick rather than captured, so dragging it
+     * in the panel takes effect on the next repetition instead of restarting the
+     * count, and a cue the user silences mid-wait simply stops making noise
+     * (`play` consults the volume it is handed).
+     *
+     * @param latest - ref holding the current settings.
+     * @param cue - which cue to replay.
+     * @returns a disposer that stops the reminder.
+     */
+    function startReminder(latest, cue) {
+      let timer = null;
+      let stopped = false;
+
+      /** Arm the next repetition. */
+      const schedule = () => {
+        if (stopped) return;
+        const delay = Math.round(clampNumber("remindMs", latest.current[cue].remindMs));
+        timer = window.setTimeout(() => {
+          timer = null;
+          if (stopped) return;
+          play(latest.current, cue);
+          schedule();
+        }, delay);
+      };
+
+      schedule();
+      return () => {
+        stopped = true;
+        if (timer !== null) window.clearTimeout(timer);
+      };
+    }
+
     // ── watching the Session ─────────────────────────────────────────────────
     /**
      * Track one Session's running flag and cue the completion edge.
@@ -321,6 +382,9 @@ window.__ModuleLoader__.load({
       const running = session((snapshot) => snapshot.running);
       const runningSince = react.useRef(null);
       const wasRunning = react.useRef(false);
+      // Set by the edge below and cleared the moment a turn starts again: the
+      // reminder plays exactly while the finished turn is still unanswered.
+      const awaitingReply = react.useRef(false);
       // The effect reads settings only at the instant a cue fires. Holding the
       // latest value in a ref keeps the effect's dependency list to the signal
       // itself, so editing the volume in the panel cannot replay a cue.
@@ -332,12 +396,15 @@ window.__ModuleLoader__.load({
         // memory and the clock so navigation cannot look like a completion.
         runningSince.current = null;
         wasRunning.current = false;
+        awaitingReply.current = false;
       }, [sessionId]);
 
       react.useEffect(() => {
         if (running === true) {
           if (runningSince.current === null) runningSince.current = Date.now();
           wasRunning.current = true;
+          // The user replied — or a turn is under way — so nothing is pending.
+          awaitingReply.current = false;
           return;
         }
         const observed = wasRunning.current;
@@ -347,7 +414,17 @@ window.__ModuleLoader__.load({
         if (!observed || startedAt === null) return;
         if (Date.now() - startedAt < latest.current.minTurnMs) return;
         play(latest.current, "turnComplete");
+        awaitingReply.current = true;
       }, [running, sessionId]);
+
+      // The reminder. This effect is declared after the edge above, so within a
+      // commit that ends a turn it observes `awaitingReply` as already set; and a
+      // turn starting again changes `running`, which disarms it through cleanup.
+      const remind = settings.turnComplete.remind;
+      react.useEffect(() => {
+        if (running === true || awaitingReply.current !== true || remind !== true) return undefined;
+        return startReminder(latest, "turnComplete");
+      }, [running, sessionId, remind]);
 
       return runningSince;
     }
@@ -373,6 +450,14 @@ window.__ModuleLoader__.load({
         if (key === null) return;
         play(latest.current, "needsInput");
       }, [key, sessionId]);
+
+      // The reminder: while the request is unanswered it keeps playing, and
+      // answering it clears the key, which is what ends this effect.
+      const remind = settings.needsInput.remind;
+      react.useEffect(() => {
+        if (key === null || remind !== true) return undefined;
+        return startReminder(latest, "needsInput");
+      }, [key, sessionId, remind]);
 
       return key;
     }
@@ -438,6 +523,10 @@ window.__ModuleLoader__.load({
       "panel.sound": "音效",
       "panel.repeat": "重复",
       "panel.gap": "间隔（毫秒）",
+      "panel.remind": "重复直到你回应",
+      "panel.remindEvery": "每隔",
+      "panel.seconds": "秒",
+      "panel.remindHint": "只要尚未回应就会一直重复播放，回应后立即停止。",
       "panel.test": "试听",
       "panel.reset": "恢复默认",
       "panel.footer": "设置仅保存在此浏览器中，刷新或重启后仍然有效。",
@@ -464,6 +553,10 @@ window.__ModuleLoader__.load({
       "panel.sound": "Sound",
       "panel.repeat": "Repeat",
       "panel.gap": "Gap (ms)",
+      "panel.remind": "Repeat until you respond",
+      "panel.remindEvery": "Every",
+      "panel.seconds": "sec",
+      "panel.remindHint": "Keeps repeating while the request is unanswered, and stops as soon as you respond.",
       "panel.test": "Test",
       "panel.reset": "Reset",
       "panel.footer": "Preferences are stored in this browser only and survive a reload.",
@@ -478,14 +571,16 @@ window.__ModuleLoader__.load({
 
     // ── the control ──────────────────────────────────────────────────────────
     /**
-     * One cue's controls: sound choice, repeat count, repetition gap, and a test
-     * button that plays exactly what the cue will play.
+     * One cue's controls: sound choice, repeat count, repetition gap, the
+     * reminder that keeps it audible until the user responds, and a test button
+     * that plays exactly what the cue will play.
      *
      * @param props - cue name, its settings, the patch callback, and the translate seat.
      * @returns the group element.
      */
     function CueGroup({ cue, value, onChange, onTest, t }) {
       const label = cue === "turnComplete" ? t("panel.complete") : t("panel.input");
+      const remindId = `dsh-sound-alerts-remind-${cue}`;
       return jsxs("div", {
         className: "dsh-sound-alerts__group",
         children: [
@@ -534,6 +629,43 @@ window.__ModuleLoader__.load({
               }),
             ],
           }),
+          jsxs("div", {
+            className: "dsh-sound-alerts__row",
+            children: [
+              jsx("label", {
+                className: "dsh-sound-alerts__label",
+                htmlFor: remindId,
+                children: t("panel.remind"),
+              }),
+              jsx("input", {
+                id: remindId,
+                type: "checkbox",
+                checked: value.remind,
+                onChange: (event) => {
+                  onChange({ remind: event.target.checked });
+                },
+              }),
+            ],
+          }),
+          jsxs("div", {
+            className: "dsh-sound-alerts__row",
+            children: [
+              jsx("span", { className: "dsh-sound-alerts__label", children: t("panel.remindEvery") }),
+              jsx("input", {
+                type: "number",
+                min: LIMITS.remindMs.min / 1000,
+                max: LIMITS.remindMs.max / 1000,
+                step: 5,
+                value: Math.round(value.remindMs / 1000),
+                "aria-label": `${label} — ${t("panel.remindEvery")}`,
+                onChange: (event) => {
+                  onChange({ remindMs: Number(event.target.value) * 1000 });
+                },
+              }),
+              jsx("span", { className: "dsh-sound-alerts__label", children: t("panel.seconds") }),
+            ],
+          }),
+          jsx("div", { className: "dsh-sound-alerts__hint", children: t("panel.remindHint") }),
           jsxs("div", {
             className: "dsh-sound-alerts__actions",
             children: [

@@ -6,7 +6,7 @@ Two plugins for the <b>DeepSeek Harness (DSH)</b> Web GUI: notification sounds w
 
 | Plugin | What it does | Where the work happens |
 |---|---|---|
-| [`sound-alerts/`](./sound-alerts/README.md) | One synthesized cue when a final response completes, another when the agent is waiting on your input, with a header control for customizing both | Browser (`dsh.client`) |
+| [`sound-alerts/`](./sound-alerts/README.md) | One synthesized cue when a final response completes, another when the agent is waiting on your input, each able to repeat every minute until you respond, with a header control for customizing both | Browser (`dsh.client`) |
 | [`rebrand/`](./rebrand/README.md) | Removes the DeepSeek wordmark and logo from the shipped web frontend and renames the app to **Harness** | Host (`dsh.bundle`) |
 
 Both are **bundles**: npm packages whose manifest declares `dsh.bundle`, which is
@@ -109,8 +109,9 @@ means everything that could run passed.
 1. **Restart DSH**, then hard-reload the page (Ctrl+Shift+R).
 2. `sound-alerts`: a speaker button appears in the session header utilities. It
    opens a panel with the master switch, volume, minimum turn length, per-cue
-   sound/repeat/gap, Test, and Reset. Preferences are browser-local
-   (`localStorage`), not host settings.
+   sound/repeat/gap, the per-cue "repeat until you respond" reminder and its
+   interval, Test, and Reset. Preferences are browser-local (`localStorage`), not
+   host settings.
 3. `rebrand`: the browser tab reads **Harness** and the favicon is a neutral
    rounded-square "H". The patch is applied automatically at every boot, so a DSH
    upgrade no longer loses it. If the tab still looks old, the browser cached
