@@ -218,6 +218,15 @@ function insertRows(lines, plugins) {
   }
 
   if (blockIndex === -1) {
+    // A fresh profile's patch file is the header plus a bare `[]`: the empty
+    // document these rows exist to fill in. Appending past it would leave two
+    // top-level nodes, which the loader's parser rejects outright ("end of the
+    // stream or a document separator is expected") and the profile stops booting.
+    // So the empty root is replaced, not kept.
+    const emptyIndex = lines.findIndex((line) => isEmptyRootArray(line));
+    if (emptyIndex !== -1) {
+      return [...lines.slice(0, emptyIndex), '- insert:', ...block, ...lines.slice(emptyIndex + 1)];
+    }
     const tail = lines.length > 0 && lines[lines.length - 1].trim() !== '' ? [''] : [];
     return [...lines, ...tail, '- insert:', ...block];
   }
@@ -248,6 +257,21 @@ function removeRow(lines, id) {
     start -= 1;
   }
   return { lines: [...lines.slice(0, start), ...lines.slice(row.end + 1)], removed: true };
+}
+
+/**
+ * Is this line a bare, empty top-level YAML array (`[]`)?
+ *
+ * The inverse of {@link dropEmptyInsertBlocks}: that one restores `[]` when the
+ * last row leaves, this one clears it when the first row arrives. A profile that
+ * has never mounted a plugin carries exactly this line, and writing an `insert:`
+ * list after it would produce a second top-level node.
+ *
+ * @param {string} line - patch file line.
+ * @returns {boolean} true when the line is an empty top-level array.
+ */
+function isEmptyRootArray(line) {
+  return /^\[\s*\]\s*$/.test(line);
 }
 
 /**

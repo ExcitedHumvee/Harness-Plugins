@@ -237,7 +237,17 @@ collision with the row renamed. Same fix.
 **The GUI stops loading after an install** — the profile's patch layer is
 malformed. Restore the newest `cordis.patch.yml.bak-*` beside it, reload, and
 report the diff. A profile patch file is a YAML array; a stray indent or a
-duplicated row id can break composition.
+duplicated row id can break composition. The known cause is `--wire` against a
+profile that has never mounted a plugin: the patch file is then a header plus a
+bare `[]`, and appending an `insert:` list to it left **two top-level nodes**,
+which the parser rejects with `end of the stream or a document separator is
+expected`. `insertRows` now replaces that empty root, and
+`node scripts/check-wire-patch.mjs` — run by `verify.mjs` inside step 6 — guards
+it. To confirm any layer parses, load it with the loader's own parser:
+
+```sh
+node -e "const y=require('js-yaml');console.log(y.load(require('fs').readFileSync(process.argv[1],'utf8')))" "$DSH_HOME/profiles/web/cordis.patch.yml"
+```
 
 **`manifest is not valid JSON`** (rebrand) — the shipped `manifest.webmanifest`
 changed shape. Nothing was written; report it, and confirm with the user before

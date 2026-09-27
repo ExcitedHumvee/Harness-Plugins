@@ -13,7 +13,9 @@
  *      throws? (`scripts/check-rebrand-plugin.mjs`, against the pristine
  *      pre-patch frontend kept in `rebrand/lib/backups/`.)
  *   5. Is the frontend rebrand in effect on this machine? (`rebrand/apply-rebrand.mjs --check`)
- *   6. Is every plugin installed into the DSH profile? (`install.mjs --check`)
+ *   6. Is every plugin installed into the DSH profile, and does the `--wire`
+ *      patch-layer writer produce a layer that parses? (`install.mjs --check`,
+ *      then `scripts/check-wire-patch.mjs`)
  *
  * Steps 5 and 6 read the machine, not just the checkout, so a failure there means
  * "not installed here (yet)" rather than "bad code". Step 4 needs the patcher's
@@ -147,6 +149,12 @@ console.log('5/6  rebrand in effect');
 console.log('');
 console.log('6/6  profile installation');
 {
+  // The `--wire` patch-layer writer first: it is the one part of installing that
+  // is pure file surgery, and getting it wrong produces a profile that will not
+  // boot. It needs no pnpm and no install, so it runs on a fresh clone too.
+  const patchOk = run(join(here, 'scripts', 'check-wire-patch.mjs'));
+  results.push({ label: 'install.mjs --wire writes a valid patch layer', ok: patchOk });
+
   const ok = run(join(here, 'install.mjs'), ['--check']);
   results.push({ label: 'plugins installed into the DSH profile', ok });
 }
