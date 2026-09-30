@@ -3,11 +3,15 @@
  *
  * `node --check` proves the patched bundle parses; it does not prove the patched
  * logo components still RUN or that they render what we intend. This harness
- * closes that gap: it slices the patched `BrandWordmark` (`uC`) and `FishLogo`
- * (`cC`) declarations plus their shared path constants out of the bundle,
- * evaluates them against a minimal React stub, and asserts on the resulting
- * element trees. It reads the same anchors the patcher writes, so a patcher
- * regression that still parses (wrong replacement, unbalanced JSX) fails here.
+ * closes that gap: it slices the patched `BrandWordmark` and `FishLogo`
+ * declarations plus their shared path constants out of the bundle, evaluates
+ * them against a minimal React stub, and asserts on the resulting element trees.
+ * It reads the same anchors the patcher writes, so a patcher regression that
+ * still parses (wrong replacement, unbalanced JSX) fails here.
+ *
+ * Like the patcher, every minified name it needs is resolved from the bundle
+ * (`bundle-symbols.mjs`) rather than hardcoded, so this harness does not itself
+ * have to be re-derived when the frontend build changes.
  *
  * It also checks the shell artifacts (`index.html`, `manifest.webmanifest`,
  * `favicon.svg`) for residual brand, and scans the whole bundle for brand
@@ -29,9 +33,11 @@ import {
   WHALE_PREFIX,
   WORDMARK_LETTERING_PREFIX,
   DS_BADGE_PREFIX,
-  WORDMARK_DEFS_PREFIX,
   count,
   findClosing,
+  isAlreadyPatched,
+  resolveBundleSymbols,
+  resolvePatchedSymbols,
 } from './patch-web-brand.mjs';
 import { APP_NAME, NEUTRAL_MARK_SVG } from './patch-web-shell.mjs';
 import { frontendInstalls, installAt } from './resolve-frontend.mjs';
@@ -71,19 +77,44 @@ const jsxs = jsx;
 
 /**
  * Build the stubbed evaluation scope source holding the patched declarations.
+ *
+ * The bundle's JSX runtime identifier and the two constant locals are resolved
+ * from the patched text, so the generated stub matches whatever names this build
+ * happens to use.
+ *
  * @param source - patched bundle text.
- * @returns the generated function body.
+ * @returns {{code: string}} the generated body.
  */
-function scopeCode(source) {
-  return [
+function scopePlan(source) {
+  const symbols = resolvePatchedSymbols(source);
+  const fishLocal = exportLocal(source, 'FishLogo');
+  const wordmarkLocal = exportLocal(source, 'BrandWordmark');
+  const code = [
     // Bind the JSX runtime under the minified name the bundle body uses.
-    'const d = jsxRuntime;',
+    `const ${symbols.jsx} = jsxRuntime;`,
     // `FISH_LOGO_VIEWBOX` and `FISH_LOGO_PATH` are one declaration list.
-    span(source, 'const Mr={'),
-    span(source, 'function cC({size:t=24,className:r})'),
-    span(source, 'function uC({'),
-    'return { Mr, $6, cC, uC };',
+    span(source, `const ${symbols.viewboxLocal}={`),
+    span(source, `function ${fishLocal}({`),
+    span(source, `function ${wordmarkLocal}({`),
+    `const { ${symbols.viewboxLocal}: viewbox, ${symbols.pathLocal}: path, ${fishLocal}: fish, ${wordmarkLocal}: wordmark } = { ${symbols.viewboxLocal}, ${symbols.pathLocal}, ${fishLocal}, ${wordmarkLocal} };`,
+    'return { viewbox, path, fish, wordmark };',
   ].join('\n');
+  return { code };
+}
+
+/**
+ * The local identifier an exported constant resolves to.
+ *
+ * @param source - bundle text.
+ * @param name - the exported name.
+ * @returns the local identifier.
+ */
+function exportLocal(source, name) {
+  const anchor = source.indexOf(name);
+  if (anchor === -1) throw new Error(`verifier: export missing: ${name}`);
+  const match = new RegExp(`${name}\\s*:\\s*([A-Za-z_$][\\w$]*)`).exec(source.slice(anchor));
+  if (match === null) throw new Error(`verifier: export is not bound: ${name}`);
+  return match[1];
 }
 
 /**
@@ -92,8 +123,9 @@ function scopeCode(source) {
  * @returns {Record<string, unknown>} the scope bindings.
  */
 function scopeOf(source) {
+  const { code } = scopePlan(source);
   // eslint-disable-next-line no-new-func
-  return new Function('jsxRuntime', scopeCode(source))({ jsx, jsxs });
+  return new Function('jsxRuntime', code)({ jsx, jsxs });
 }
 
 /** Collect every literal SVG path `d` value under a node. */
@@ -138,7 +170,21 @@ export function verifyBundle(source) {
   check('whale path is gone', count(source, WHALE_PREFIX) === 0);
   check('DeepSeek lettering is gone', count(source, WORDMARK_LETTERING_PREFIX) === 0);
   check('DS badge glyph is gone', count(source, DS_BADGE_PREFIX) === 0);
-  check('wordmark clip paths are gone', count(source, WORDMARK_DEFS_PREFIX) === 0);
+  // The `<defs>` clip paths are identified by this build's JSX runtime name when
+  // the bundle still has the original components; once patched, that component
+  // is gone and there is nothing left to find either way.
+  let defsPrefix = null;
+  if (!isAlreadyPatched(source)) {
+    try {
+      defsPrefix = resolveBundleSymbols(source).wordmarkDefsPrefix;
+    } catch {
+      defsPrefix = null;
+    }
+  }
+  check(
+    'wordmark clip paths are gone',
+    defsPrefix === null ? true : count(source, defsPrefix) === 0,
+  );
   check(
     'no user-visible "DeepSeek" literal remains',
     !/"DeepSeek/.test(source) && !/DeepSeek Harness/.test(source),
@@ -157,7 +203,7 @@ export function verifyBundle(source) {
     check('patched declarations evaluate', false, String(error));
     if (process.env.DSH_VERIFY_DEBUG === '1') {
       console.log('--- generated scope code ---');
-      console.log(scopeCode(source));
+      console.log(scopePlan(source).code);
       console.log('--- end ---');
     }
     return checks;
@@ -165,13 +211,14 @@ export function verifyBundle(source) {
 
   check(
     'FISH_LOGO_VIEWBOX is the neutral box',
-    scope.Mr.width === NEUTRAL_GLYPH.viewbox.width && scope.Mr.height === NEUTRAL_GLYPH.viewbox.height,
-    JSON.stringify(scope.Mr),
+    scope.viewbox.width === NEUTRAL_GLYPH.viewbox.width &&
+      scope.viewbox.height === NEUTRAL_GLYPH.viewbox.height,
+    JSON.stringify(scope.viewbox),
   );
-  check('FISH_LOGO_PATH is the neutral glyph', scope.$6 === NEUTRAL_GLYPH.path);
+  check('FISH_LOGO_PATH is the neutral glyph', scope.path === NEUTRAL_GLYPH.path);
 
   // ── FishLogo ────────────────────────────────────────────────────────────────
-  const fish = scope.cC({ size: 24, className: 'brand-mark' });
+  const fish = scope.fish({ size: 24, className: 'brand-mark' });
   const fishPaths = pathData(fish);
   check('FishLogo renders exactly one path', fishPaths.length === 1, String(fishPaths.length));
   check('FishLogo path is not the whale', !fishPaths.some((d) => d.includes('22.9168')));
@@ -180,7 +227,7 @@ export function verifyBundle(source) {
   check('FishLogo is decorative', fish.props['aria-hidden'] === true);
 
   // ── BrandWordmark ───────────────────────────────────────────────────────────
-  const mark = scope.uC({});
+  const mark = scope.wordmark({});
   const markStrings = strings(mark);
   check('BrandWordmark renders a single element', mark.type === 'span', String(mark.type));
   check(
@@ -189,10 +236,10 @@ export function verifyBundle(source) {
     JSON.stringify(markStrings),
   );
   check('BrandWordmark exposes no SVG paths', pathData(mark).length === 0);
-  check('BrandWordmark scales with size', scope.uC({ size: 48 }).props.style.fontSize === 48 * 0.68);
+  check('BrandWordmark scales with size', scope.wordmark({ size: 48 }).props.style.fontSize === 48 * 0.68);
   check(
     'BrandWordmark forwards className',
-    scope.uC({ className: 'wm' }).props.style !== undefined && mark.props.className === undefined,
+    scope.wordmark({ className: 'wm' }).props.style !== undefined && mark.props.className === undefined,
   );
 
   return checks;

@@ -8,16 +8,26 @@
  * anchor is missing or ambiguous, writes only after all replacements succeed,
  * and re-checks the result. Nothing is guessed.
  *
- * Two independent call sites carry the brand mark:
+ * Two independent call sites carry the brand mark, exported as `FishLogo` and
+ * `BrandWordmark`:
  *
- *   `function cC({size,className})`  — the bare whale glyph (`FishLogo`).
- *   `function uC({size,className,includeMark})` — the full lockup: the word
- *      "DeepSeek" as outlined paths, then the whale, then a rounded badge whose
- *      two glyph paths spell "DS" (drawn with an inverted fill over the badge).
+ *   `FishLogo` — the bare whale glyph.
+ *   `BrandWordmark` — the full lockup: the word "DeepSeek" as outlined paths,
+ *      then the whale, then a rounded badge whose two glyph paths spell "DS"
+ *      (drawn with an inverted fill over the badge).
  *
  * Both are replaced. The `FISH_LOGO_PATH` / `FISH_LOGO_VIEWBOX` exports keep
  * their names (other code imports them) but now describe a neutral generic
  * glyph, so no consumer can render the whale.
+ *
+ * Every minified identifier involved — the JSX runtime, both component names,
+ * the two constant locals — is resolved from the bundle at patch time by
+ * `bundle-symbols.mjs`, not hardcoded. The build this was originally derived
+ * from (`@deepseek-ai/dsh-web-frontend@0.1.5-rc.3`) used `d`, `cC`, `uC`, `Mr`,
+ * `$6`; the next one used `l`, `G_`, `K_`, `lo`, `K6`. Anchoring on those names
+ * is what made the patch refuse to run after an upgrade, so the names are now
+ * discovered and only the brand *geometry* — which is artwork and stable — is
+ * pinned.
  *
  * Usage:
  *   node rebrand/lib/patch-web-brand.mjs [--check] [--all] [--dist=DIR]
@@ -29,65 +39,22 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
+import {
+  DS_BADGE_PREFIX,
+  PATCHED_MARKER,
+  WHALE_PREFIX,
+  WORDMARK_LETTERING_PREFIX,
+  count,
+  findClosing,
+  isAlreadyPatched,
+  resolveBundleSymbols,
+  resolvePatchedSymbols,
+} from './bundle-symbols.mjs';
 import { ensureBackup, frontendInstalls, installAt } from './resolve-frontend.mjs';
 
 const CHECK_ONLY = process.argv.includes('--check');
 const ALL = process.argv.includes('--all');
 const DIST_ARG = process.argv.find((arg) => arg.startsWith('--dist='));
-
-/** The whale path starts with this prefix; it is unique in the bundle. */
-const WHALE_PREFIX = 'M22.9168 1.43018C22.6713 1.31018';
-/** The badge's "D" glyph path is unique by its distinctive prefix. */
-const DS_BADGE_PREFIX = 'M132.848 8.93205H134.08V16.137';
-/** First path of the "DeepSeek" lettering. */
-const WORDMARK_LETTERING_PREFIX = 'M68.416 18.2447H67.0501V16.1272H68.416';
-/** `<defs>` block declaring the wordmark/whale clip paths inside the lockup. */
-const WORDMARK_DEFS_PREFIX = 'd.jsxs("defs",{children:[d.jsx("clipPath"';
-/** Marks a bundle this patcher already produced. */
-const PATCHED_MARKER = 'children:"HARNESS"';
-
-/** Count non-overlapping literal occurrences. */
-function count(haystack, needle) {
-  let n = 0;
-  let index = haystack.indexOf(needle);
-  while (index !== -1) {
-    n += 1;
-    index = haystack.indexOf(needle, index + needle.length);
-  }
-  return n;
-}
-
-/**
- * Index of the delimiter matching the one at `open`, string-literal aware.
- *
- * @param source - the bundle text.
- * @param open - index of the opening delimiter.
- * @param opener - the opening character.
- * @param closer - the matching closing character.
- * @returns the index of the matching closing delimiter.
- */
-function findClosing(source, open, opener, closer) {
-  let depth = 0;
-  let quote = null;
-  for (let i = open; i < source.length; i += 1) {
-    const ch = source[i];
-    if (quote !== null) {
-      if (ch === '\\') i += 1;
-      else if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      quote = ch;
-      continue;
-    }
-    if (ch === opener) depth += 1;
-    else if (ch === closer) {
-      depth -= 1;
-      if (depth === 0) return i;
-    }
-  }
-  throw new Error(`unbalanced ${opener}${closer} starting at ${String(open)}`);
-}
 
 /**
  * Replace one whole `function NAME(...) {...}` declaration, found by its exact
@@ -132,21 +99,29 @@ const NEUTRAL_GLYPH = {
 };
 
 /** The wordmark rendered in place of the DeepSeek lockup: just the word HARNESS. */
-const HARNESS_WORDMARK =
-  'function uC({size:t=24,className:r}){return d.jsx("span",{className:r,style:{fontSize:t*0.68,fontWeight:600,letterSpacing:"0.14em",lineHeight:1,whiteSpace:"nowrap"},children:"HARNESS"})}';
+function harnessWordmarkReplacement(symbols) {
+  return (
+    `function ${symbols.wordmarkName}({size:t=24,className:r}){return ${symbols.jsx}.jsx("span",` +
+    '{className:r,style:{fontSize:t*0.68,fontWeight:600,letterSpacing:"0.14em",lineHeight:1,whiteSpace:"nowrap"},children:"HARNESS"})}'
+  );
+}
 
 /** The bare-logo component, rendering the neutral glyph instead of the whale. */
-const FISH_LOGO =
-  'function cC({size:t=24,className:r}){return d.jsx("svg",{width:t,height:t,className:r,viewBox:"0 0 16 16",fill:"none","aria-hidden":true,children:d.jsx("path",{d:"' +
-  NEUTRAL_GLYPH.path +
-  '",fill:"currentColor"})})}';
+function fishLogoReplacement(symbols) {
+  return (
+    `function ${symbols.fishLogoName}({size:t=24,className:r}){return ${symbols.jsx}.jsx("svg",` +
+    `{width:t,height:t,className:r,viewBox:"0 0 16 16",fill:"none","aria-hidden":true,children:${symbols.jsx}.jsx("path",{d:"` +
+    NEUTRAL_GLYPH.path +
+    '",fill:"currentColor"})})}'
+  );
+}
 
 /**
  * Patch one bundle's text.
  *
  * Pure: it never touches the disk, so callers can patch and verify in memory
  * before deciding whether to write. Throws when a precondition fails, which is
- * the loud outcome the version-pinned anchors are supposed to produce.
+ * the loud outcome a genuinely unrecognizable build is supposed to produce.
  *
  * @param original - the bundle source.
  * @returns {{status: 'already-patched'|'patched', source: string, before: number, after: number}} the result.
@@ -155,14 +130,18 @@ export function patchBundleText(original) {
   let source = original;
 
   // ── preconditions ─────────────────────────────────────────────────────────
-  if (!source.includes(WHALE_PREFIX) && source.includes(PATCHED_MARKER)) {
+  if (isAlreadyPatched(source)) {
     return { status: 'already-patched', source, before: original.length, after: original.length };
   }
+
+  // Every minified name this build uses, discovered rather than assumed.
+  const symbols = resolveBundleSymbols(source);
+
   for (const [label, needle, expected] of [
-    ['whale path', WHALE_PREFIX, 1],
-    ['wordmark lettering', WORDMARK_LETTERING_PREFIX, 1],
-    ['DS badge glyph', DS_BADGE_PREFIX, 1],
-    ['wordmark defs', WORDMARK_DEFS_PREFIX, 1],
+    ['whale path', symbols.whalePrefix, 1],
+    ['wordmark lettering', symbols.letteringPrefix, 1],
+    ['DS badge glyph', symbols.badgePrefix, 1],
+    ['wordmark defs', symbols.wordmarkDefsPrefix, 1],
   ]) {
     const found = count(source, needle);
     if (found !== expected) {
@@ -173,40 +152,47 @@ export function patchBundleText(original) {
     }
   }
   // The wordmark lockup's first element is the lettering's D. Anchoring on the
-  // surrounding `d.jsx("path",{d:"` prefix avoids matching an `M68.416` that
+  // surrounding `X.jsx("path",{d:"` prefix avoids matching an `M68.416` that
   // occurs inside the whale path's own data.
-  const letteringAnchor = 'd.jsx("path",{d:"M68.416 18.2447H67.0501V16.1272H68.416';
-  if (count(source, letteringAnchor) !== 1) {
+  if (count(source, symbols.wordmarkLetteringAnchor) !== 1) {
     throw new Error('precondition failed: wordmark lettering first path not uniquely anchored');
   }
 
   // ── 1. FISH_LOGO_VIEWBOX: keep the export name, drop the mark geometry ────
-  source = source.replace(
-    /const Mr=\{width:23\.16,height:17\.04\}/,
-    `const Mr={width:${String(NEUTRAL_GLYPH.viewbox.width)},height:${String(NEUTRAL_GLYPH.viewbox.height)}}`,
+  const viewboxPattern = new RegExp(
+    `const ([A-Za-z_$][\\w$]*)=\\{width:\\d+(?:\\.\\d+)?,height:\\d+(?:\\.\\d+)?\\}`,
   );
+  const viewboxMatch = viewboxPattern.exec(source);
+  if (viewboxMatch === null) throw new Error('anchor missing: FISH_LOGO_VIEWBOX declaration');
+  if (viewboxMatch[1] !== symbols.viewboxLocal) {
+    throw new Error(
+      `anchor mismatch: expected the viewBox const ${symbols.viewboxLocal}, found ${viewboxMatch[1]}`,
+    );
+  }
+  source =
+    source.slice(0, viewboxMatch.index) +
+    `const ${symbols.viewboxLocal}={width:${String(NEUTRAL_GLYPH.viewbox.width)},height:${String(NEUTRAL_GLYPH.viewbox.height)}}` +
+    source.slice(viewboxMatch.index + viewboxMatch[0].length);
 
   // ── 2. FISH_LOGO_PATH: keep the export name, drop the whale path ──────────
-  const whaleStart = source.indexOf('$6="' + WHALE_PREFIX);
-  if (whaleStart === -1) throw new Error('anchor missing: FISH_LOGO_PATH assignment');
-  const whalePathEnd = source.indexOf('Z"', whaleStart);
+  const pathPrefix = `${symbols.pathLocal}="`;
+  const whaleStart = source.indexOf(pathPrefix + symbols.whalePrefix);
+  if (whaleStart === -1) throw new Error(`anchor missing: ${symbols.pathLocal} FISH_LOGO_PATH assignment`);
+  // The literal runs to the closing quote of the declaration it starts.
+  const whalePathEnd = source.indexOf('"', whaleStart + pathPrefix.length);
   if (whalePathEnd === -1) throw new Error('anchor missing: end of FISH_LOGO_PATH literal');
   source =
     source.slice(0, whaleStart) +
-    '$6="' +
+    pathPrefix +
     NEUTRAL_GLYPH.path +
     '"' +
-    source.slice(whalePathEnd + 2); // +2 skips the closing `Z"`
+    source.slice(whalePathEnd + 1); // +1 skips the closing quote
 
   // ── 3. FishLogo component: render the neutral glyph ───────────────────────
-  source = replaceFunction(source, 'function cC({size:t=24,className:r})', FISH_LOGO);
+  source = replaceFunction(source, symbols.fishSignature, fishLogoReplacement(symbols));
 
   // ── 4. BrandWordmark: render the word only ────────────────────────────────
-  source = replaceFunction(
-    source,
-    'function uC({size:t=24,className:r,includeMark:i=!0})',
-    HARNESS_WORDMARK,
-  );
+  source = replaceFunction(source, symbols.wordmarkSignature, harnessWordmarkReplacement(symbols));
 
   // ── postconditions ────────────────────────────────────────────────────────
   if (source.includes(WHALE_PREFIX)) throw new Error('postcondition failed: whale path still present');
@@ -214,9 +200,11 @@ export function patchBundleText(original) {
     throw new Error('postcondition failed: DeepSeek lettering still present');
   }
   if (source.includes(DS_BADGE_PREFIX)) throw new Error('postcondition failed: DS badge still present');
-  if (source.includes(WORDMARK_DEFS_PREFIX)) throw new Error('postcondition failed: wordmark clip paths still present');
+  if (source.includes(symbols.wordmarkDefsPrefix)) {
+    throw new Error('postcondition failed: wordmark clip paths still present');
+  }
   if (!source.includes(PATCHED_MARKER)) throw new Error('postcondition failed: HARNESS wordmark missing');
-  if (count(source, 'const Mr={width:16,height:16}') !== 1) {
+  if (count(source, `const ${symbols.viewboxLocal}={width:16,height:16}`) !== 1) {
     throw new Error('postcondition failed: FISH_LOGO_VIEWBOX not rewritten');
   }
 
@@ -309,14 +297,14 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
 
 export {
   NEUTRAL_GLYPH,
-  HARNESS_WORDMARK,
-  FISH_LOGO,
   WHALE_PREFIX,
   WORDMARK_LETTERING_PREFIX,
   DS_BADGE_PREFIX,
-  WORDMARK_DEFS_PREFIX,
   PATCHED_MARKER,
   count,
   findClosing,
+  isAlreadyPatched,
+  resolveBundleSymbols,
+  resolvePatchedSymbols,
   replaceFunction,
 };
