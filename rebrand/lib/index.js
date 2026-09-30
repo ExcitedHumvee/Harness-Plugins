@@ -132,8 +132,8 @@ export async function apply(ctx, config) {
   if (outcome.failures > 0) {
     ctx.logger?.warn?.(
       `rebrand: ${String(outcome.failures)} check(s) failed — the frontend was left untouched. ` +
-        'The installed @deepseek-ai/dsh-web-frontend build is probably not the one the patch anchors were derived from; ' +
-        'run `node rebrand/apply-rebrand.mjs --check` for the anchor that moved.',
+        'The installed @deepseek-ai/dsh-web-frontend build may have changed the brand artwork, or the shape of the ' +
+        'components this patch recognizes; run `node rebrand/apply-rebrand.mjs --check` for the anchor that moved.',
     );
   }
 }

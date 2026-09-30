@@ -121,12 +121,43 @@ to mount this package, and it also carries the browser half:
 - `lib/index.js` — the host half. Empty `apply`; it exists so the package is a
   well-formed Cordis Loader entry.
 - `lib/client.js` — the browser half, discovered through this package's own
-  `dsh.client` declaration and served at `/plugins/dsh-sound-alerts/client.js`.
-  It is plain script-form JavaScript (`window.__ModuleLoader__.load({ id, factory })`),
-  so no build step is involved: the bundle is served as-is from disk.
+  `dsh.client` declaration. It is plain script-form JavaScript
+  (`window.__ModuleLoader__.load({ id, factory })`), so no build step is
+  involved: the bundle is served as-is from disk.
 - `package.json` — declares `exports["./client"]` alongside `dsh.client`
   (`platform: web`, `immediately: true`, plus an `inject` edge onto
   `dsh-client-ui-conversation`, which declares the header slot).
+
+### How DSH 0.2 serves the browser half
+
+Older DSH builds served a client bundle at a fixed,
+package-named path (`/plugins/dsh-sound-alerts/client.js`). **0.2 no longer
+works that way**, and a request to that path now returns 404 — including for
+DSH's own built-in plugins. The current contract:
+
+- `client-modules` composes a **boot graph** into the shell as
+  `window.__DSH_BOOT__`. Each row carries a revisioned, **document-relative
+  combo reference** (`plugins/??<id>/client.js&rev=<rev>`), and the shell groups
+  rows into one bootstrap combo plus one or more application combos.
+- A per-plugin revision is derived from the artifact's `mtimeMs`, `ctimeMs` and
+  size, so **a client-half edit is picked up by a page reload** without a restart;
+  the browser fetches the new revision.
+- Bundle bodies are **lazy**: executing `client.js` only registers the factory,
+  and every module side effect — including the stylesheet injection — runs at
+  materialization inside the factory closure.
+- `dsh.client.external` is the field that orders composition (a requested package
+  row loads before its consumers). `dsh.client.inject` is **informational only**
+  in this version — it is *not* Cordis service injection and no longer drives
+  load order. This package declares no `external`, because everything it
+  `require`s (`react`, `react/jsx-runtime`,
+  `@deepseek-ai/dsh-client-ui-primitives`) is part of the shell's frozen platform
+  seed table. `scripts/check-packages.mjs` asserts exactly that.
+
+To inspect the live graph from the page console:
+
+```js
+window.__DSH_BOOT__.entries.filter((e) => e.id.includes('sound-alerts'))
+```
 
 The client half registers one occupant into
 `conversation.session.header.utilities` at `order: 4`, and registers its

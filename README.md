@@ -168,11 +168,19 @@ rebrand/
 - **Version bumps.** The marketplace decides whether to offer an update by comparing
   the `version` in each package's `package.json` against the index. Bump it when you
   change a package, or the update button never appears.
-- **The rebrand is build-specific.** Its anchors were derived from
-  `@deepseek-ai/dsh-web-frontend@0.1.5-rc.3`. A newer frontend may rename its
-  minified symbols; the patcher then refuses loudly (`precondition failed: …`) and
-  leaves the bundle untouched, which is the intended outcome. Re-deriving the
-  anchors is a deliberate, verifiable job — see [`rebrand/README.md`](./rebrand/README.md).
+- **The rebrand pins brand geometry, not minified names.** `rebrand/lib/bundle-symbols.mjs`
+  resolves the JSX runtime, both component names, the `FISH_LOGO_*` locals and their
+  parameter names from the frontend's own export map and component shapes at patch
+  time, so a frontend upgrade that only renames minified symbols no longer breaks it.
+  A build whose *shape* the patch cannot recognize still refuses loudly
+  (`precondition failed: …`) and leaves the bundle untouched, which is the intended
+  outcome. See [`rebrand/README.md`](./rebrand/README.md).
+- **A request to `/plugins/<id>/client.js` returns 404 since DSH 0.2** — including for
+  DSH's own built-in plugins. Client bundles are now served through revisioned combo
+  URLs recorded in the boot graph (`window.__DSH_BOOT__`), and a client-half edit is
+  picked up by a page reload rather than needing a restart. Do not use that path as a
+  health check; inspect the boot graph instead. See
+  [`sound-alerts/README.md`](./sound-alerts/README.md).
 - **There can be more than one frontend copy** (the profile's, plus one per `npx`
   cache). The rebrand patches the copy the running server actually serves, matched
   over HTTP; `--all` patches every copy.

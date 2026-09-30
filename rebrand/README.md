@@ -15,7 +15,7 @@ are the record of exactly what changed.
 | `dist/index.html` | `<title>DeepSeek Harness</title>` → `<title>Harness</title>`, plus `apple-mobile-web-app-title` | `lib/patch-web-shell.mjs` |
 | `dist/manifest.webmanifest` | `name` and `short_name` → `Harness` | `lib/patch-web-shell.mjs` |
 | `dist/favicon.svg` | DeepSeek whale replaced with a neutral rounded-square "H" mark | `lib/patch-web-shell.mjs` |
-| `dist/assets/index-*.js` | The whale glyph and the outlined "DeepSeek" lockup removed | `lib/patch-web-brand.mjs` |
+| `dist/assets/index-*.js` | The whale glyph and the outlined "DeepSeek" lockup removed | `lib/patch-web-brand.mjs`, resolving names via `lib/bundle-symbols.mjs` |
 
 The bundle and the shell are two separate halves of the same job: the bundle
 patch removes the mark from inside the running app, and the shell patch removes
@@ -126,15 +126,29 @@ quoted text — and skips a function's parameter list before balancing, because
 default parameter values are object literals (`{size:t=24}`) whose braces would
 otherwise be mistaken for the function body.
 
-**This makes the patch build-specific.** The anchors describe the frontend build
-it was written against (`@deepseek-ai/dsh-web-frontend@0.1.5-rc.3`, whose entry
-bundle is `index-BKQ_L1z6.js`). A newer `@deepseek-ai/dsh-web-frontend` will very
-plausibly rename its minified symbols and change its path data, and the patcher
-then stops with `precondition failed: …` instead of corrupting the bundle. That
-is the intended outcome. Re-deriving the anchors against the new build is a
-deliberate, verified job — the six anchors are listed at the top of
-`lib/patch-web-brand.mjs`, and `lib/verify-web-brand.mjs` is what proves the new
-replacement renders.
+**The anchors are brand geometry, not minified identifiers.** `bundle-symbols.mjs`
+resolves every build-specific name at patch time instead of hardcoding it:
+
+| What | How it is found |
+|---|---|
+| the JSX runtime local (`d`, then `l`) | the `.jsx(`/`.jsxs(` call inside a component already identified |
+| `FishLogo` / `BrandWordmark` (`cC`/`uC`, then `G_`/`K_`) | the package's own **export map** (`FishLogo:G_`), cross-checked against each component's props signature and the brand geometry in its body |
+| `FISH_LOGO_PATH` / `FISH_LOGO_VIEWBOX` locals (`$6`/`Mr`, then `K6`/`lo`) | the same export map, confirmed against the whale-path literal |
+| each function's parameter names (`size:e`, `className:n`, …) | the matched declaration itself |
+
+The exported names are part of the package's API and survive minification; the
+artwork bytes (whale path, "DeepSeek" lettering, "DS" badge) are stable across
+builds. Those two signals are what the patch pins.
+
+This matters because the distinction is the difference between working across an
+upgrade and refusing across it. The patch originally hardcoded `d`, `cC`, `uC`,
+`Mr`, `$6` — the names in `@deepseek-ai/dsh-web-frontend@0.1.5-rc.3` — and when
+the frontend moved to `0.2.0-rc.2` (entry bundle `index-5SrrfWpU.js`) the
+minifier renamed all of them and the patcher stopped with
+`precondition failed: …`. That refusal is still the correct outcome for a build
+whose **shape** the patch cannot recognize, and it never corrupts the bundle —
+but a renamed symbol is no longer enough to trigger it. `lib/verify-web-brand.mjs`
+resolves its anchors the same way, so the verifier cannot drift from the patcher.
 
 ## Verifying
 
@@ -207,7 +221,9 @@ of the brand that was just removed, reachable by URL.
 
 ## Renaming it to something else
 
-`APP_NAME` in `lib/patch-web-shell.mjs` sets the title and manifest name, and
-`HARNESS_WORDMARK` in `lib/patch-web-brand.mjs` carries the uppercase in-app
-wordmark. Change both, then re-run against a pristine bundle (restore a backup
-first) — the "already patched" detection keys on the default name.
+`APP_NAME` in `lib/patch-web-shell.mjs` sets the title and manifest name, and the
+`HARNESS` literal inside `harnessWordmarkReplacement()` in
+`lib/patch-web-brand.mjs` carries the uppercase in-app wordmark. Change both, and
+change `PATCHED_MARKER` in `lib/bundle-symbols.mjs` to match the new literal, since
+that is what "already patched" detection keys on. Then re-run against a pristine
+bundle (restore a backup first).

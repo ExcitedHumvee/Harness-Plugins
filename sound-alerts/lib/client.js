@@ -455,14 +455,18 @@ window.__ModuleLoader__.load({
      * the current Session's interaction key changes, so one request alerts once
      * however many times React re-renders the shell.
      *
-     * @param pending - the standard `useSessionPendingInteraction` hook.
+     * @param sessionStatus - the standard `useSessionStatus` selector hook.
      * @param sessionId - current Session identity.
      * @param settings - current settings.
      * @param notify - stable callback signalling that a cue fired.
      */
-    function useInputAlert(pending, sessionId, settings, notify) {
-      const interaction = pending((snapshot) => snapshot.get(sessionId));
-      const key = interaction === undefined ? null : interaction.key;
+    function useInputAlert(sessionStatus, sessionId, settings, notify) {
+      // `SessionStatus.pendingInteraction` is the highest-precedence domain
+      // request awaiting the user, and `SessionStatusSnapshot` is indexed by
+      // Session identity — the same shape the old per-Session interaction map
+      // had, so the keying below is unchanged.
+      const interaction = sessionStatus((snapshot) => snapshot.get(sessionId)?.pendingInteraction);
+      const key = interaction === undefined || interaction === null ? null : interaction.key;
       const latest = react.useRef(settings);
       latest.current = settings;
 
@@ -844,7 +848,7 @@ window.__ModuleLoader__.load({
      *   and the framework translate seat.
      * @returns the control element.
      */
-    function SoundAlerts({ sessionId, useSession, useSessionPendingInteraction, t }) {
+    function SoundAlerts({ sessionId, useSession, useSessionStatus, t }) {
       const [settings, setSettings] = react.useState(loadSettings);
       const [open, setOpen] = react.useState(false);
       const [cueing, setCueing] = react.useState(false);
@@ -902,7 +906,7 @@ window.__ModuleLoader__.load({
       // thing to `play` while keeping the call sites identical.
       const audible = live ? settings : { ...settings, volume: 0 };
       useCompletionAlert(useSession, sessionId, audible, alertFlash);
-      useInputAlert(useSessionPendingInteraction, sessionId, audible, alertFlash);
+      useInputAlert(useSessionStatus, sessionId, audible, alertFlash);
 
       react.useEffect(() => {
         if (!open) return undefined;

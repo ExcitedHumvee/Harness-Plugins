@@ -12,7 +12,16 @@
  *     would break the install);
  *   - `main` / `exports["."]` resolve to a real host entry;
  *   - a package declaring `dsh.client` exports a real `./client` bundle;
+ *   - every module the client bundle `require`s is resolvable at materialization
+ *     — from DSH's frozen platform seed table, or from this package's own
+ *     `dsh.client.external`;
  *   - every path named in `files` exists.
+ *
+ * The client-module check is the one that tracks a moving DSH contract. A browser
+ * bundle is lazy CJS: it registers a factory and resolves `require` against the
+ * platform seed table composed by the web shell's `rM()`. A specifier that is
+ * neither seeded nor declared in `dsh.client.external` throws at materialization
+ * — a runtime failure in the user's page, which nothing else here would catch.
  *
  * It reads no machine state: a fresh clone verifies cleanly before anything is
  * installed.
@@ -26,6 +35,54 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * The module-table seed the DSH web shell hands every client bundle.
+ *
+ * This is the `staticModules` table the shell composes at boot (the frontend
+ * bundle's own seed function, `rM()`), and it is the table every dynamic bundle
+ * resolves its externals against. It is deliberately a plain list rather than a
+ * read of the installed frontend: this script must run on a fresh clone, where
+ * there is no installed frontend to read.
+ *
+ * Verified against `@deepseek-ai/dsh-web-frontend@0.2.0-rc.2`. If a future DSH
+ * adds a seed, a bundle may still resolve it at runtime; if a future DSH *removes*
+ * one, the failure surfaces here rather than in someone's page.
+ */
+const PLATFORM_SEED = new Set([
+  'react',
+  'react/jsx-runtime',
+  'react-dom',
+  'react-dom/client',
+  '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
+  '@deepseek-ai/dsh-client-ui-slots',
+  '@deepseek-ai/dsh-client-ui-primitives',
+  '@deepseek-ai/dsh-client-ui-dockkit',
+]);
+
+/** Builtin specifiers a bundle may always name. */
+const NODE_BUILTIN_PREFIXES = ['node:', 'cordis:'];
+
+/**
+ * Every bare module specifier a client bundle `require`s.
+ *
+ * Only the synchronous, literal `require("…")` form is read, which is what the
+ * bundle format uses for platform modules; relative paths and dynamic
+ * `require.async(...)` chunk requests are not module-table lookups.
+ *
+ * @param text - the client bundle's text.
+ * @returns {string[]} the bare specifiers, deduplicated.
+ */
+function requiredSpecifiers(text) {
+  const found = new Set();
+  for (const match of text.matchAll(/\brequire\(\s*["']([^"']+)["']\s*\)/g)) {
+    const spec = match[1];
+    if (spec.startsWith('.') || spec.startsWith('/')) continue;
+    found.add(spec);
+  }
+  return [...found].sort();
+}
 
 let failures = 0;
 /**
@@ -126,9 +183,67 @@ for (const pkg of packages) {
   if (manifest.dsh?.client !== undefined) {
     const platform = manifest.dsh.client.platform;
     ok('dsh.client targets the web platform', platform === 'web', String(platform));
+
+    // Shape of the declaration DSH 0.2 validates, so a typo fails here rather
+    // than at composition time in the profile.
+    const declaredInject = manifest.dsh.client.inject;
+    if (declaredInject !== undefined) {
+      ok(
+        'dsh.client.inject is a string array',
+        Array.isArray(declaredInject) && declaredInject.every((entry) => typeof entry === 'string'),
+      );
+    }
+    const declaredExternal = manifest.dsh.client.external;
+    if (declaredExternal !== undefined) {
+      ok(
+        'dsh.client.external is a string array',
+        Array.isArray(declaredExternal) && declaredExternal.every((entry) => typeof entry === 'string'),
+      );
+    }
+    if (manifest.dsh.client.immediately !== undefined) {
+      ok('dsh.client.immediately is a boolean', typeof manifest.dsh.client.immediately === 'boolean');
+    }
+
     const clientRel = manifest.exports?.['./client'];
     ok('exports a ./client bundle', typeof clientRel === 'string' && clientRel !== '');
-    if (typeof clientRel === 'string') ok(`client bundle exists (${clientRel})`, existsSync(join(here, pkg.dir, clientRel)));
+    if (typeof clientRel === 'string') {
+      const clientPath = join(here, pkg.dir, clientRel);
+      const clientExists = existsSync(clientPath);
+      ok(`client bundle exists (${clientRel})`, clientExists);
+
+      if (clientExists) {
+        const text = readFileSync(clientPath, 'utf8');
+        // The DSH 0.2 browser contract: a bundle registers a lazy factory rather
+        // than exporting ESM, so its module bodies must not use `import`/`export`.
+        ok(
+          'client bundle registers through window.__ModuleLoader__',
+          text.includes('__ModuleLoader__') && text.includes('factory'),
+        );
+        ok(
+          'client bundle uses no ESM import/export',
+          !/^\s*(?:import|export)\s/m.test(text),
+        );
+
+        const declared = new Set(Array.isArray(declaredExternal) ? declaredExternal : []);
+        // `<pkg>/client` aliases the bare package row, so compare both forms.
+        const declaredBare = new Set([...declared].map((name) => name.replace(/\/client$/, '')));
+        const specifiers = requiredSpecifiers(text);
+        const unresolved = specifiers.filter(
+          (spec) =>
+            !PLATFORM_SEED.has(spec) &&
+            !declared.has(spec) &&
+            !declaredBare.has(spec) &&
+            !NODE_BUILTIN_PREFIXES.some((prefix) => spec.startsWith(prefix)),
+        );
+        ok(
+          `every require resolves from the platform seed or dsh.client.external (${String(specifiers.length)} checked)`,
+          unresolved.length === 0,
+          unresolved.length === 0
+            ? ''
+            : `unresolved: ${unresolved.join(', ')} — add to dsh.client.external or the PLATFORM_SEED list`,
+        );
+      }
+    }
   }
 
   for (const file of manifest.files ?? []) {

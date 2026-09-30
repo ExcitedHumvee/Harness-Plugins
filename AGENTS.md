@@ -172,16 +172,20 @@ contract, the plugin behaviour, the rebrand, and the profile installation from
 scratch, so it is the gate to trust.
 
 Then confirm the part that only a real boot can prove — that the browser half is
-composed into the boot graph and servable:
+composed into the boot graph. **Do not use a curl probe for DSH 0.2.0 or newer:**
+since 0.2 the client bundle is served through a revisioned, document-relative
+combo URL recorded in the boot graph, so `/plugins/<id>/client.js` returns 404 —
+for your plugin *and* for DSH's own built-in plugins. A 404 there is not a signal
+in either direction.
 
-```sh
-curl -s "http://127.0.0.1:3080/plugins/dsh-sound-alerts/client.js" -o /dev/null -w '%{http_code}\n'
+Ask the user to run this in the page console after the restart and reload:
+
+```js
+window.__DSH_BOOT__.entries.filter((e) => e.id.includes('sound-alerts'))
 ```
 
-A `404` on a bundle install means the row did not compose; check
-`--dump-config` first. On a `--wire` install the served path is
-`/plugins/sound-alerts/client.js` — the row id, not the package name — because a
-`file:`-mounted row is served under its row id.
+A row means the browser half composed. On a `--wire` install the row id is the
+`file:`-mounted row's id, not the package name.
 
 ---
 
@@ -209,21 +213,29 @@ files and the composition, not the rendering.
 ## Failure modes
 
 **`precondition failed: <anchor> expected 1 occurrence(s), found 0`** (rebrand)
-The installed `@deepseek-ai/dsh-web-frontend` build is not the one the anchors were
-derived from, typically after a DSH upgrade. This is a **failure the patcher is
-designed to produce** — it refused rather than corrupting the bundle, and the GUI
-still boots (the host plugin logs the refusal and returns). Report which anchor
-failed and the frontend version:
+The installed `@deepseek-ai/dsh-web-frontend` build does not have the **shape** the
+patch recognizes. This is a **failure the patcher is designed to produce** — it
+refused rather than corrupting the bundle, and the GUI still boots (the host plugin
+logs the refusal and returns).
+
+Since the patcher resolves minified names from the bundle at patch time, a *renamed
+symbol* no longer causes this on its own; reaching this message now means the
+artwork or structure itself changed. Report which anchor failed and the frontend
+version:
 
 ```sh
 node -e "console.log(require('$DSH_HOME/profiles/node_modules/@deepseek-ai/dsh-web-frontend/package.json').version)"
 ```
 
-Re-deriving the anchors is a deliberate job: find the same primitives in the new
-bundle (`FishLogo`, `BrandWordmark`, the `FISH_LOGO_PATH`/`FISH_LOGO_VIEWBOX`
-constants), update the constants at the top of `rebrand/lib/patch-web-brand.mjs`,
-and prove the new replacement with
-`node rebrand/apply-rebrand.mjs --check --dist=<dist>`.
+Diagnosis is deliberate work, not a constant swap: the resolver in
+`rebrand/lib/bundle-symbols.mjs` finds the components through the package's export
+map (`FishLogo`, `BrandWordmark`, `FISH_LOGO_PATH`, `FISH_LOGO_VIEWBOX`) and
+confirms each candidate against the brand geometry in its body. Check, in the new
+bundle, whether those exports still exist and whether the whale path, "DeepSeek"
+lettering, and "DS" badge bytes still match the constants at the top of that file;
+if the artwork changed, the geometry constants are what move. Prove any change with
+`node rebrand/apply-rebrand.mjs --check --dist=<dist>`, and note the verifier
+resolves its anchors the same way, so the two cannot drift apart.
 Hand this to the user as a decision, not a silent edit.
 
 **`duplicate loader entry id: <id>`** — a `file:` row from an older install is

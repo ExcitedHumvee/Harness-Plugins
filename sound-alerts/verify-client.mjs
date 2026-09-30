@@ -354,6 +354,44 @@ const settingsKey = 'dsh-sound-alerts.settings.v1';
 let englishCopy = {};
 
 /**
+ * The `SessionStandardProps` kit DSH 0.2.0-rc.2 hands a
+ * `conversation.session.header.utilities` occupant.
+ *
+ * Declared by the packages named in the comments, via declaration merging into
+ * `SessionStandardProps`, plus the two session-scope seats from the slots core.
+ * This is the contract the control's props come from, and it is pinned here on
+ * purpose: this list is the one thing that made the plugin fail silently.
+ *
+ * The removed `useSessionPendingInteraction` hook is exactly why. It was a valid
+ * prop under the previous DSH; under 0.2 the hook does not exist, so
+ * destructuring it yielded `undefined`, calling it threw during render, and the
+ * slot's error boundary *abdicated* the entry — the seat stayed registered but
+ * permanently `active: false`, so the control vanished with no visible error and
+ * survived cache clears. Anything added to or removed from this list must be
+ * re-checked against the live slot catalog (`cordis_inspect_query` → client
+ * `Slots.listSubTree` → the slot's `standardProps`).
+ */
+const SESSION_STANDARD_PROPS = [
+  // dsh-client-ui-session
+  'useSessions',
+  'useSessionStatus',
+  'useSessionRetainInfo',
+  'useSession',
+  'useProjection',
+  // dsh-client-ui-chat
+  'useChat',
+  // dsh-client-ui-conversation
+  'useWorkspaces',
+  'useConversation',
+  'useInput',
+  // dsh-client-ui-trajectory
+  'useTrajectory',
+  // session-scope seats
+  'sessionId',
+  'inputActions',
+];
+
+/**
  * Build the two standard hooks from a scripted state object.
  *
  * @param {object} state - `{ running, interactionKey }`, mutated between renders.
@@ -368,7 +406,25 @@ function propsFor(state) {
     // dictionary for the registered namespace and hands the occupant a `t`.
     t: (key) => englishCopy[key] ?? key,
     useSession: (selector) => selector({ running: state.running }),
-    useSessionPendingInteraction: (selector) => selector({ get: () => (state.interactionKey === null ? undefined : { key: state.interactionKey }) }),
+    // DSH 0.2 exposes the pending interaction through `SessionStatus`, indexed by
+    // Session identity — not through the removed `useSessionPendingInteraction`
+    // hook. Modeling the real map shape is what makes a future rename fail here
+    // rather than in the header, where a missing prop throws, abdicates the slot
+    // entry, and silently retires the control.
+    useSessionStatus: (selector) =>
+      selector(
+        new Map([
+          [
+            'sessionId' in state ? state.sessionId : 'session-a',
+            {
+              running: state.running,
+              pendingInteraction:
+                state.interactionKey === null ? undefined : { key: state.interactionKey },
+              completionUnread: false,
+            },
+          ],
+        ]),
+      ),
   };
 }
 
@@ -502,6 +558,27 @@ check('injects slots and locale', JSON.stringify(moduleExports.inject) === JSON.
   check('occupant order sits next to the context gauge (5)', slotRegistrations[0]?.options.order === 4);
   check('occupant binds the plugin dictionary', slotRegistrations[0]?.options.locale === 'sound-alerts');
   check('occupant component is the control', slotRegistrations[0]?.component === moduleExports.SoundAlerts);
+  // The props the control destructures must all come from the DSH version's
+  // `SessionStandardProps` kit. Destructuring a prop the framework does not pass
+  // makes it `undefined`; calling it as a hook throws during render, and the
+  // slot's error boundary then abdicates the seat — which is how this plugin
+  // disappeared from the header under DSH 0.2 with nothing logged to the user.
+  // Comparing against the pinned kit turns that silent runtime death into a
+  // failed check here.
+  {
+    const signature = /function SoundAlerts\(\{([^}]*)\}\)/.exec(source);
+    check('the control exposes a destructured props signature', signature !== null);
+    const destructured = (signature?.[1] ?? '')
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part !== '');
+    const unknown = destructured.filter((name) => !SESSION_STANDARD_PROPS.includes(name));
+    check(
+      `every prop the control destructures is in the DSH 0.2 standard kit (${String(destructured.length)} checked)`,
+      destructured.length > 0 && unknown.length === 0,
+      unknown.length === 0 ? '' : `not in SESSION_STANDARD_PROPS: ${unknown.join(', ')}`,
+    );
+  }
   check('registers one locale namespace', localeRegistrations.length === 1 && localeRegistrations[0].namespace === 'sound-alerts');
   check('registers both dictionaries', localeRegistrations[0]?.dictionaries.zh !== undefined && localeRegistrations[0]?.dictionaries.en !== undefined);
   check('registers the effect under a label', effects.length === 1 && typeof effects[0] === 'function');
