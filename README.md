@@ -113,9 +113,9 @@ means everything that could run passed.
    reminder and its interval, Test, and Reset. Preferences are browser-local
    (`localStorage`), not host settings.
 3. `rebrand`: the browser tab reads **Harness** and the favicon is a neutral
-   rounded-square "H". The patch is applied automatically at every boot, so a DSH
-   upgrade no longer loses it. If the tab still looks old, the browser cached
-   `favicon.svg` — open a fresh tab or hard-reload.
+   rounded-square "H" in both light and dark mode. The patch is applied
+   automatically at every boot, so a DSH upgrade no longer loses it. If the tab
+   still looks old, the browser cached a favicon — open a fresh tab or hard-reload.
 
 ## Managing
 
@@ -152,7 +152,7 @@ rebrand/
   lib/index.js             host half: applies the rebrand on boot, never fatal
   lib/apply-rebrand.mjs    the shared apply logic the plugin and the CLI both drive
   lib/patch-web-brand.mjs  patches the minified JS bundle (anchor-based)
-  lib/patch-web-shell.mjs  patches index.html, manifest.webmanifest, favicon.svg
+  lib/patch-web-shell.mjs  patches index.html, manifest.webmanifest, favicon*.svg
   lib/resolve-frontend.mjs finds every installed frontend copy
   lib/verify-web-brand.mjs evaluates the patched components and scans for residual brand
   lib/backups/             pre-patch copies (git-ignored) — also the rollback

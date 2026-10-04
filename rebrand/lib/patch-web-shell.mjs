@@ -14,7 +14,14 @@
  *
  *   `index.html`           the `<title>` (and any `apple-mobile-web-app-title`)
  *   `manifest.webmanifest` the JSON `name` / `short_name`
- *   `favicon.svg`          replaced wholesale by the neutral mark below
+ *   `favicon*.svg`         replaced wholesale by the neutral mark below
+ *
+ * The favicon rule covers *every* favicon the shell ships, not just
+ * `favicon.svg`: the DSH 0.2 frontend also ships a `favicon-dark.svg` and links
+ * it from `index.html` under `media="(prefers-color-scheme: dark)"`, so patching
+ * the light file alone leaves the DeepSeek whale in the tab for every user whose
+ * system is in dark mode. The neutral mark inverts itself through
+ * `prefers-color-scheme`, so the same bytes are correct in both files.
  *
  * Each rewrite is idempotent, each file is backed up to `rebrand/lib/backups/`
  * before its first change, and `--check` reports the plan without writing.
@@ -23,7 +30,7 @@
  *   node rebrand/lib/patch-web-shell.mjs [--check] [--all] [--dist=DIR]
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -59,6 +66,25 @@ export const NEUTRAL_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="
 
 /** Marks a favicon this patcher already produced. */
 const MARK_MARKER = 'harness-mark-bg';
+
+/**
+ * Every favicon file a frontend `dist/` ships, in a stable order.
+ *
+ * Matched by pattern rather than by a fixed list so a future DSH release that
+ * adds another colour-scheme variant (a monochrome or high-contrast icon, say)
+ * is rebranded by the same pass instead of shipping the whale beside a patched
+ * light icon. A missing `dist/` or no matches yields an empty list, which the
+ * caller reports rather than guessing a filename.
+ *
+ * @param {string} dist - a frontend `dist` directory.
+ * @returns {string[]} favicon file names, sorted.
+ */
+export function faviconNames(dist) {
+  if (!existsSync(dist)) return [];
+  return readdirSync(dist)
+    .filter((name) => /^favicon.*\.svg$/.test(name))
+    .sort();
+}
 
 /**
  * Rewrite `index.html`: the document title and the iOS home-screen title.
@@ -154,14 +180,18 @@ export function patchShell(install, options = {}) {
     writes.push({ file, text: result.text });
   }
 
-  const favicon = join(install.dist, 'favicon.svg');
-  if (!existsSync(favicon)) {
-    details.push('favicon.svg: not found (skipped)');
-  } else if (readFileSync(favicon, 'utf8').includes(MARK_MARKER)) {
-    details.push('favicon.svg: already the neutral mark');
-  } else {
-    details.push('favicon.svg: whale -> neutral rounded-square H mark');
-    writes.push({ file: favicon, text: NEUTRAL_MARK_SVG });
+  const favicons = faviconNames(install.dist);
+  if (favicons.length === 0) {
+    details.push('favicon*.svg: not found (skipped)');
+  }
+  for (const name of favicons) {
+    const favicon = join(install.dist, name);
+    if (readFileSync(favicon, 'utf8').includes(MARK_MARKER)) {
+      details.push(`${name}: already the neutral mark`);
+    } else {
+      details.push(`${name}: whale -> neutral rounded-square H mark`);
+      writes.push({ file: favicon, text: NEUTRAL_MARK_SVG });
+    }
   }
 
   const changed = writes.length > 0;

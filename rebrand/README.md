@@ -14,13 +14,20 @@ are the record of exactly what changed.
 |---|---|---|
 | `dist/index.html` | `<title>DeepSeek Harness</title>` → `<title>Harness</title>`, plus `apple-mobile-web-app-title` | `lib/patch-web-shell.mjs` |
 | `dist/manifest.webmanifest` | `name` and `short_name` → `Harness` | `lib/patch-web-shell.mjs` |
-| `dist/favicon.svg` | DeepSeek whale replaced with a neutral rounded-square "H" mark | `lib/patch-web-shell.mjs` |
+| `dist/favicon*.svg` | DeepSeek whale replaced with a neutral rounded-square "H" mark, in every colour-scheme variant the shell ships | `lib/patch-web-shell.mjs` |
 | `dist/assets/index-*.js` | The whale glyph and the outlined "DeepSeek" lockup removed | `lib/patch-web-brand.mjs`, resolving names via `lib/bundle-symbols.mjs` |
 
 The bundle and the shell are two separate halves of the same job: the bundle
 patch removes the mark from inside the running app, and the shell patch removes
 it from the browser chrome (tab title, install name, bookmark icon) that is shown
 before any JavaScript runs.
+
+The favicon rule covers the whole set because `index.html` links more than one
+icon: DSH 0.2 ships a `favicon-dark.svg` selected under
+`media="(prefers-color-scheme: dark)"` alongside `favicon.svg`. The neutral mark
+inverts itself through `prefers-color-scheme`, so the same bytes are written to
+each file, and patching only the light one would leave the whale in the tab for
+every dark-mode user.
 
 Inside the bundle, three exported primitives carried the brand:
 
@@ -182,8 +189,8 @@ the page reloads — no server restart is needed for the shell files.
 
 Two browser caches are worth knowing about:
 
-- **favicon.svg** is cached aggressively. If the old mark is still showing, hard-reload
-  (Ctrl+Shift+R) or add the page to a fresh tab.
+- **The favicons** (`favicon.svg` and `favicon-dark.svg`) are cached aggressively. If the
+  old mark is still showing, hard-reload (Ctrl+Shift+R) or add the page to a fresh tab.
 - The **app title** likewise comes from `index.html`, so a reload picks it up.
 
 Reinstalling or upgrading `@deepseek-ai/dsh-web-frontend` replaces `dist/`. With the
@@ -202,6 +209,7 @@ copy rebrand\lib\backups\index-<hash>.js.orig-backup  <dist>\assets\index-<hash>
 copy rebrand\lib\backups\index.html.orig-backup       <dist>\index.html
 copy rebrand\lib\backups\manifest.webmanifest.orig-backup <dist>\manifest.webmanifest
 copy rebrand\lib\backups\favicon.svg.orig-backup      <dist>\favicon.svg
+copy rebrand\lib\backups\favicon-dark.svg.orig-backup <dist>\favicon-dark.svg
 ```
 
 Then, if the plugin is installed, disable it — otherwise the next boot puts the

@@ -1,8 +1,8 @@
 {
   "name": "dsh-rebrand",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
-  "description": "Removes the DeepSeek wordmark and logo from the DSH Web GUI and renames the app to Harness, re-applied automatically on every boot; resolves the frontend's minified symbols at patch time so a DSH upgrade that only renames them does not disable it",
+  "description": "Removes the DeepSeek wordmark and logo from the DSH Web GUI and renames the app to Harness, re-applied automatically on every boot; resolves the frontend's minified symbols at patch time so a DSH upgrade that only renames them does not disable it, and rebrands every favicon the shell ships (light and dark)",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

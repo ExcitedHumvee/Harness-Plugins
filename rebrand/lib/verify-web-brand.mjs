@@ -14,8 +14,13 @@
  * have to be re-derived when the frontend build changes.
  *
  * It also checks the shell artifacts (`index.html`, `manifest.webmanifest`,
- * `favicon.svg`) for residual brand, and scans the whole bundle for brand
+ * every `favicon*.svg`) for residual brand, and scans the whole bundle for brand
  * geometry and for a user-visible `"DeepSeek` literal.
+ *
+ * The favicons are verified as a *set* because the shell links more than one:
+ * `index.html` selects `favicon.svg` in light mode and `favicon-dark.svg` in
+ * dark mode. Checking only the light file is how the whale survived in the tab
+ * for dark-mode users after the rest of the rebrand had been applied.
  *
  * Usage:
  *   node rebrand/lib/verify-web-brand.mjs [--all] [--dist=DIR]
@@ -39,7 +44,7 @@ import {
   resolveBundleSymbols,
   resolvePatchedSymbols,
 } from './patch-web-brand.mjs';
-import { APP_NAME, NEUTRAL_MARK_SVG } from './patch-web-shell.mjs';
+import { APP_NAME, NEUTRAL_MARK_SVG, faviconNames } from './patch-web-shell.mjs';
 import { frontendInstalls, installAt } from './resolve-frontend.mjs';
 
 /**
@@ -248,7 +253,7 @@ export function verifyBundle(source) {
 /**
  * Verify the shell artifacts: tab title, manifest names, favicon mark.
  *
- * @param {{html?: string|null, manifest?: string|null, favicon?: string|null}} texts - file contents; omit or null to skip.
+ * @param {{html?: string|null, manifest?: string|null, favicons?: {name: string, text: string|null}[]}} texts - file contents; omit or null to skip.
  * @returns {{label: string, ok: boolean, detail: string}[]} one entry per check.
  */
 export function verifyShell(texts) {
@@ -256,7 +261,7 @@ export function verifyShell(texts) {
   const checks = [];
   const check = (label, ok, detail = '') => checks.push({ label, ok: Boolean(ok), detail });
 
-  const { html, manifest, favicon } = texts;
+  const { html, manifest, favicons } = texts;
   if (typeof html === 'string') {
     check(`index.html title is ${APP_NAME}`, html.includes(`<title>${APP_NAME}</title>`));
     check('index.html has no "DeepSeek"', !/DeepSeek/.test(html));
@@ -274,10 +279,16 @@ export function verifyShell(texts) {
       check(`manifest short_name is ${APP_NAME}`, parsed.short_name === APP_NAME, JSON.stringify(parsed.short_name));
     }
   }
-  if (typeof favicon === 'string') {
-    check('favicon is the neutral mark', favicon.includes('harness-mark-bg'));
-    check('favicon has no brand reference', !/deepseek/i.test(favicon));
-    check('favicon matches the shipped mark', favicon.trim() === NEUTRAL_MARK_SVG.trim());
+  for (const { name, text } of favicons ?? []) {
+    if (typeof text !== 'string') {
+      // Named by the shell but absent from dist/: the icon would 404, so this is
+      // a defect rather than something to skip past.
+      check(`${name} exists`, false, 'referenced by index.html but not found in the dist directory');
+      continue;
+    }
+    check(`${name} is the neutral mark`, text.includes('harness-mark-bg'));
+    check(`${name} has no brand reference`, !/deepseek/i.test(text));
+    check(`${name} matches the shipped mark`, text.trim() === NEUTRAL_MARK_SVG.trim());
   }
 
   return checks;
@@ -298,7 +309,20 @@ export function verifyInstall(install) {
     const file = join(install.dist, name);
     return existsSync(file) ? readFileSync(file, 'utf8') : null;
   };
-  checks.push(...verifyShell({ html: read('index.html'), manifest: read('manifest.webmanifest'), favicon: read('favicon.svg') }));
+  const html = read('index.html');
+  // Every favicon the dist ships *plus* every relative one the shell links by
+  // name: a shell pointing at an icon this patcher never wrote must fail here
+  // rather than be skipped because the file name did not match the pattern.
+  // Absolute URLs are ignored — an externally hosted icon is not ours to verify.
+  const linked = [...(html ?? '').matchAll(/href="(?!https?:|\/\/)[^"]*?((?:favicon|icon)[^"/]*\.svg)"/gi)].map((match) => match[1]);
+  const names = [...new Set([...faviconNames(install.dist), ...linked])].sort();
+  checks.push(
+    ...verifyShell({
+      html,
+      manifest: read('manifest.webmanifest'),
+      favicons: names.map((name) => ({ name, text: read(name) })),
+    }),
+  );
   return checks;
 }
 

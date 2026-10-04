@@ -115,11 +115,20 @@ console.log('4/6  rebrand host plugin behaviour');
   // The patcher's own pre-patch backup is a pristine frontend, which is exactly
   // what the harness needs as input. Reassemble a dist/ from it in a temp dir.
   const backups = join(here, 'rebrand', 'lib', 'backups');
-  const names = ['index.html', 'manifest.webmanifest', 'favicon.svg'];
+  // Discover the favicons rather than listing them: the shell ships one per
+  // colour scheme (`favicon.svg`, `favicon-dark.svg`) and the set grows across
+  // DSH releases, so the fixture has to carry whatever the backup holds or the
+  // host-plugin check silently stops covering the newer files.
+  const faviconBackups = existsSync(backups)
+    ? readdirSync(backups).filter((name) => /^favicon.*\.svg\.orig-backup$/.test(name))
+    : [];
+  const required = ['index.html', 'manifest.webmanifest'];
+  const names = [...required, ...faviconBackups.map((name) => name.replace(/\.orig-backup$/, ''))];
   const bundleName = existsSync(backups)
     ? readdirSync(backups).find((name) => /^index-.*\.js\.orig-backup$/.test(name))
     : undefined;
-  const missing = names.filter((name) => !existsSync(join(backups, `${name}.orig-backup`)));
+  const missing = required.filter((name) => !existsSync(join(backups, `${name}.orig-backup`)));
+  if (faviconBackups.length === 0) missing.push('favicon*.svg');
 
   if (bundleName === undefined || missing.length > 0) {
     const missingList = bundleName === undefined ? [...missing, 'index-*.js'] : missing;

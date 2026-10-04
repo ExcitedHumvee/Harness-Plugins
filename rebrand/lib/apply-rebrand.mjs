@@ -28,7 +28,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { patchBundleText, patchInstall } from './patch-web-brand.mjs';
-import { patchIndexHtml, patchManifest, patchShell, NEUTRAL_MARK_SVG } from './patch-web-shell.mjs';
+import { patchIndexHtml, patchManifest, patchShell, NEUTRAL_MARK_SVG, faviconNames } from './patch-web-shell.mjs';
 import { detectServedInstalls, frontendInstalls, installAt } from './resolve-frontend.mjs';
 import { verifyBundle, verifyShell } from './verify-web-brand.mjs';
 
@@ -48,6 +48,22 @@ function readIfPresent(dist, name) {
 }
 
 /**
+ * Read every favicon a frontend ships, in the patcher's own order.
+ *
+ * The shell links more than one favicon (`favicon.svg` in light mode,
+ * `favicon-dark.svg` in dark mode), so "is this install rebranded" and "what
+ * would the patch produce" both have to cover the whole set — reading only
+ * `favicon.svg` reports an install as done while the whale is still the dark
+ * icon.
+ *
+ * @param {string} dist - a frontend `dist` directory.
+ * @returns {{name: string, text: string|null}[]} one entry per favicon file.
+ */
+function readFavicons(dist) {
+  return faviconNames(dist).map((name) => ({ name, text: readIfPresent(dist, name) }));
+}
+
+/**
  * Whether every artifact in an install already carries this rebrand.
  *
  * Cheap on purpose: it reads the same bytes the patchers would read, but never
@@ -64,7 +80,7 @@ export function isAlreadyPatched(install) {
 
   const html = readIfPresent(install.dist, 'index.html');
   const manifest = readIfPresent(install.dist, 'manifest.webmanifest');
-  const favicon = readIfPresent(install.dist, 'favicon.svg');
+  const favicons = readFavicons(install.dist);
 
   const htmlDone = html === null || !html.includes('DeepSeek');
   const manifestDone = manifest === null || (() => {
@@ -75,7 +91,7 @@ export function isAlreadyPatched(install) {
       return false;
     }
   })();
-  const faviconDone = favicon === null || favicon.includes('harness-mark-bg');
+  const faviconDone = favicons.every(({ text }) => text === null || text.includes('harness-mark-bg'));
 
   return htmlDone && manifestDone && faviconDone;
 }
@@ -116,7 +132,7 @@ export function planInstall(install) {
 
     const html = readIfPresent(install.dist, 'index.html');
     const manifest = readIfPresent(install.dist, 'manifest.webmanifest');
-    const favicon = readIfPresent(install.dist, 'favicon.svg');
+    const favicons = readFavicons(install.dist);
     const shell = patchShell(install, { checkOnly: true });
     if (shell.status === 'would-patch') status = 'would-patch';
 
@@ -124,7 +140,13 @@ export function planInstall(install) {
       ...verifyShell({
         html: html === null ? null : patchIndexHtml(html).text,
         manifest: manifest === null ? null : patchManifest(manifest).text,
-        favicon: favicon !== null && !favicon.includes('harness-mark-bg') ? NEUTRAL_MARK_SVG : favicon,
+        // Preview the post-patch state: each unpatched favicon becomes the mark
+        // the patcher would write, exactly as the bundle half substitutes its
+        // rewritten source above.
+        favicons: favicons.map(({ name, text }) => ({
+          name,
+          text: text !== null && !text.includes('harness-mark-bg') ? NEUTRAL_MARK_SVG : text,
+        })),
       }),
     );
   } catch (error) {
@@ -234,7 +256,7 @@ export async function applyRebrand(options = {}) {
         ...verifyShell({
           html: readIfPresent(install.dist, 'index.html'),
           manifest: readIfPresent(install.dist, 'manifest.webmanifest'),
-          favicon: readIfPresent(install.dist, 'favicon.svg'),
+          favicons: readFavicons(install.dist),
         }),
       ];
       for (const entry of checks) {

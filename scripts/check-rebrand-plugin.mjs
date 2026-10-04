@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { apply } from '../rebrand/lib/index.js';
+import { bundleIn } from '../rebrand/lib/resolve-frontend.mjs';
 
 const source = process.argv[2];
 if (source === undefined || !existsSync(source)) {
@@ -105,7 +106,20 @@ const first = freshDist();
 // (d) an unrecognizable frontend is reported, never thrown.
 {
   const third = freshDist();
-  writeFileSync(join(third.dist, 'assets', 'index-BKQ_L1z6.js'), 'export const nothing = 1;\n');
+  // Damage the bundle the shell actually names, not a decoy beside it. The
+  // resolver reads the content hash out of `index.html` (`bundleIn`), so an
+  // extra `assets/index-<other-hash>.js` is never opened: the frontend only
+  // becomes unrecognizable when *the referenced* bundle is one this patcher
+  // cannot match. Asking the resolver which file that is keeps this fixture
+  // correct when a DSH upgrade changes the hash — a hardcoded decoy name
+  // silently stopped testing the failure path the moment the real bundle
+  // sorted ahead of it.
+  const target = bundleIn(third.dist);
+  if (target === null) {
+    ok('the fixture can identify the referenced bundle', false, 'bundleIn() returned null');
+  } else {
+    writeFileSync(target, 'export const nothing = 1;\n');
+  }
   const ctx = stubContext();
   let threw = null;
   try {

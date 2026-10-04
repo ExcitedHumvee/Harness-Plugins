@@ -3,7 +3,7 @@
  *
  * The rebrand is not a browser feature — it edits the *published* frontend
  * artifacts in place (`dist/index.html`, `dist/manifest.webmanifest`,
- * `dist/favicon.svg`, `dist/assets/index-*.js`) — so it lives here, in a host
+ * `dist/favicon*.svg`, `dist/assets/index-*.js`) — so it lives here, in a host
  * plugin, rather than in a `dsh.client` bundle.
  *
  * Running it on boot is what makes the rebrand an installable plugin instead of a
