@@ -392,6 +392,25 @@ const SESSION_STANDARD_PROPS = [
 ];
 
 /**
+ * The locale seat, kept apart from {@link SESSION_STANDARD_PROPS} because it is
+ * not a standard prop: the slots core synthesizes `t` from the entry's own
+ * registration instead of merging it into `SessionStandardProps`.
+ *
+ * `PropsLocale` in `@deepseek-ai/dsh-client-ui-slots` states the rule — "the
+ * framework-injected `t` seat, present exactly on entries whose registration
+ * declares `locale:`" — and the register options repeat it: declaring a locale
+ * namespace "puts the framework-synthesized `t` seat ... on the component
+ * props". So `t` is as framework-provided as any hook above, and a control that
+ * destructures it is correct; the seat only becomes `undefined` when the entry
+ * declares no `locale`, which is the failure this check must still catch.
+ *
+ * It was absent from the list above until now, which made this check reject the
+ * plugin's own correct signature — the verifier's stub has always handed the
+ * control a `t`, so only the static comparison disagreed.
+ */
+const LOCALE_SEAT_PROPS = ['t'];
+
+/**
  * Build the two standard hooks from a scripted state object.
  *
  * @param {object} state - `{ running, interactionKey }`, mutated between renders.
@@ -572,11 +591,20 @@ check('injects slots and locale', JSON.stringify(moduleExports.inject) === JSON.
       .split(',')
       .map((part) => part.trim())
       .filter((part) => part !== '');
-    const unknown = destructured.filter((name) => !SESSION_STANDARD_PROPS.includes(name));
+    // The locale seat is only handed out to an entry that declares `locale`, so
+    // it is allowed here on exactly that condition — the same option the
+    // dictionary check above pins to 'sound-alerts'.
+    const declaresLocale = slotRegistrations[0]?.options.locale !== undefined;
+    const available = declaresLocale
+      ? [...SESSION_STANDARD_PROPS, ...LOCALE_SEAT_PROPS]
+      : SESSION_STANDARD_PROPS;
+    const unknown = destructured.filter((name) => !available.includes(name));
     check(
-      `every prop the control destructures is in the DSH 0.2 standard kit (${String(destructured.length)} checked)`,
+      `every prop the control destructures is available on this entry (${String(destructured.length)} checked)`,
       destructured.length > 0 && unknown.length === 0,
-      unknown.length === 0 ? '' : `not in SESSION_STANDARD_PROPS: ${unknown.join(', ')}`,
+      unknown.length === 0
+        ? ''
+        : `not available${declaresLocale ? ' (entry declares locale)' : ' (entry declares no locale)'}: ${unknown.join(', ')}`,
     );
   }
   check('registers one locale namespace', localeRegistrations.length === 1 && localeRegistrations[0].namespace === 'sound-alerts');
