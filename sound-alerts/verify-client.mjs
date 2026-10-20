@@ -193,6 +193,16 @@ let pendingEffects = [];
 /** Effects whose cleanup must run when their deps change or the tree unmounts. */
 const liveEffects = new Map();
 let effectSeq = 0;
+/**
+ * Bumped by every state setter that actually changes a slot.
+ *
+ * React re-renders when an effect calls a setter, and the next commit's effects
+ * observe the new value — that is how a hook can set state in one effect and
+ * have a second effect react to it in the same flush. Without this counter the
+ * stub committed once and stopped, so any hook driving an effect from state
+ * (rather than from a ref) looked broken here while working in the real shell.
+ */
+let stateVersion = 0;
 
 const reactStub = {
   useState(initial) {
@@ -205,7 +215,11 @@ const reactStub = {
     return [
       entry.value,
       (next) => {
-        entry.value = typeof next === 'function' ? next(entry.value) : next;
+        const value = typeof next === 'function' ? next(entry.value) : next;
+        if (!Object.is(value, entry.value)) {
+          entry.value = value;
+          stateVersion += 1;
+        }
       },
     ];
   },
@@ -291,19 +305,30 @@ console.log(`registered id: ${registration.id}`);
  * Render the control with the given standard props, flushing effects exactly
  * like React does for a committed tree.
  *
+ * A setter called from an effect schedules another commit, so keep rendering
+ * while `stateVersion` moves and let each commit flush the effects it registered
+ * — that is what lets one effect observe state another one just set. The pass
+ * cap stands in for React's bail-out: a component that set state on every render
+ * unconditionally would spin in React too, and this must not hang the suite.
+ *
  * @param {object} props - the props the host slot would pass.
  * @returns {object|null} the rendered root element.
  */
 function render(props) {
-  hookIndex = 0;
-  pendingEffects = [];
-  const tree = moduleExports.SoundAlerts(props);
-  for (const effect of pendingEffects) {
-    const entry = liveEffects.get(effect.slot);
-    if (entry !== undefined && entry.token === effect.token && !entry.ran) {
-      entry.ran = true;
-      entry.cleanup = effect.fn() ?? undefined;
+  let tree = null;
+  for (let pass = 0; pass < 25; pass += 1) {
+    const before = stateVersion;
+    hookIndex = 0;
+    pendingEffects = [];
+    tree = moduleExports.SoundAlerts(props);
+    for (const effect of pendingEffects) {
+      const entry = liveEffects.get(effect.slot);
+      if (entry !== undefined && entry.token === effect.token && !entry.ran) {
+        entry.ran = true;
+        entry.cleanup = effect.fn() ?? undefined;
+      }
     }
+    if (stateVersion === before) break;
   }
   return tree;
 }
@@ -616,6 +641,21 @@ check('injects slots and locale', JSON.stringify(moduleExports.inject) === JSON.
   check('the injected style tag is namespaced', documentStub.head.children[0]?.dataset.pluginCss === 'dsh-sound-alerts/sound-alerts.css');
   check('the stylesheet was queried before insertion', queriedSelectors.includes('style[data-plugin-css="dsh-sound-alerts/sound-alerts.css"]'));
   check('the stylesheet defines the header control', String(documentStub.head.children[0]?.textContent).includes('.dsh-sound-alerts__trigger'));
+  {
+    // The panel and the acknowledge bar are surfaces over scrolling content, and
+    // the menu tint alone is only 94% opaque with no blur of its own — that is
+    // what read as washed out. Guard the treatment that fixes it rather than
+    // letting a later edit quietly drop a half again.
+    const stylesheet = String(documentStub.head.children[0]?.textContent);
+    const surfaces = ['.dsh-sound-alerts__panel', '.dsh-sound-alerts__ack'];
+    for (const selector of surfaces) {
+      const rule = new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\{([^}]*)\\}`).exec(stylesheet)?.[1] ?? '';
+      check(`the stylesheet styles ${selector}`, rule !== '');
+      check(`${selector} sits on an opaque surface token`, rule.includes('background-color:var(--dsw-alias-bg-layer-1)'));
+      check(`${selector} pairs the menu tint with the menu backdrop filter`, rule.includes('backdrop-filter:var(--dsw-menu-backdrop-filter)'));
+    }
+    check('the acknowledge bar control is styled', stylesheet.includes('.dsh-sound-alerts__ackButton'));
+  }
 }
 
 currentTest = 'dictionaries';
@@ -870,6 +910,65 @@ console.log('\ncompletion reminder');
   check('a turn under the floor never reminds', audioLog.length === 0, `notes=${String(audioLog.length)}`);
 }
 
+currentTest = 'completion acknowledgement';
+console.log('\ncompletion acknowledgement');
+{
+  const state = { sessionId: 'session-a', running: false, interactionKey: null };
+  // Renders with the props it is given and inspects that same commit: the bar's
+  // presence depends on `running`, so a helper that always re-rendered with the
+  // idle props would raise the very edge it is trying to observe.
+  const flatWith = (props) => renderFlat(propsFor(props));
+  const ackBarIn = (nodes) => nodes.find((node) => node.props['data-sound-alerts-ack'] !== undefined);
+
+  // The reminder is off: nothing is repeating, so no bar offers to stop it.
+  freshInstance(state);
+  flatWith({ ...state, running: true });
+  check('no acknowledge bar while the reminder is off', ackBarIn(flatWith({ ...state, running: false })) === undefined);
+
+  // Reminder on: finishing a turn raises the bar.
+  resetTree();
+  seedSettings({ ...baseSettings, turnComplete: { ...baseSettings.turnComplete, remind: true } });
+  check('no acknowledge bar before any turn completes', ackBarIn(flatWith(state)) === undefined);
+  check('no acknowledge bar while a turn is still running', ackBarIn(flatWith({ ...state, running: true })) === undefined);
+  const finished = flatWith({ ...state, running: false });
+  check('finishing a turn raises the acknowledge bar', ackBarIn(finished) !== undefined);
+
+  // It says what it is for and offers exactly one control.
+  const bar = ackBarIn(finished);
+  check('the bar reports as a status region', bar.props.role === 'status');
+  const ackButtons = () => elements(bar).filter((node) => node.type === 'button');
+  check('the bar offers exactly one control', ackButtons().length === 1);
+  check('the control carries an accessible name', typeof ackButtons()[0]?.props['aria-label'] === 'string' && ackButtons()[0].props['aria-label'].length > 0);
+
+  // Pressing it stops the repeat for this turn — the second way out.
+  audioLog = [];
+  advance(60000);
+  check('the cue is still repeating before the acknowledgement', audioLog.length > 0, `notes=${String(audioLog.length)}`);
+  fire(ackButtons()[0].props.onClick);
+  check('acknowledging takes the bar away', ackBarIn(flatWith({ ...state, running: false })) === undefined);
+  audioLog = [];
+  advance(300000);
+  check('acknowledging stops the repeat for this turn', audioLog.length === 0, `notes=${String(audioLog.length)}`);
+
+  // The checkbox is untouched by an acknowledgement: the preference survives.
+  check('acknowledging leaves the reminder preference on', persisted()?.turnComplete.remind === true, String(persisted()?.turnComplete.remind));
+
+  // A later turn arms it again from scratch.
+  flatWith({ ...state, running: true });
+  check('the next completed turn raises the bar again', ackBarIn(flatWith({ ...state, running: false })) !== undefined);
+
+  // The panel occupies the same anchored slot, so the bar stands down for it.
+  fire(flatWith({ ...state, running: false }).find((node) => node.props['aria-expanded'] !== undefined).props.onClick);
+  check('the bar stands down while the settings panel is open', ackBarIn(flatWith({ ...state, running: false })) === undefined);
+
+  // Reminders that cannot be heard have nothing to acknowledge.
+  resetTree();
+  seedSettings({ ...baseSettings, enabled: false, turnComplete: { ...baseSettings.turnComplete, remind: true } });
+  flatWith(state);
+  flatWith({ ...state, running: true });
+  check('no acknowledge bar while alerts are off', ackBarIn(flatWith({ ...state, running: false })) === undefined);
+}
+
 currentTest = 'reminder customization';
 console.log('\nreminder customization');
 {
@@ -1005,7 +1104,7 @@ console.log('\ncustomization');
   // Field order is [minimum turn, complete repeat, complete gap, input repeat,
   // input gap], so index 1 is the completion cue's repeat count.
   const numbers = renderFlat(propsFor(state)).filter((node) => node.type === 'input' && node.props.type === 'number');
-  check('the completion repeat field is the second number input', numbers[1]?.props['aria-label'] === 'When a final response completes — Repeat', numbers[1]?.props['aria-label']);
+  check('the completion repeat field is the second number input', numbers[1]?.props['aria-label'] === 'When any response completes — Repeat', numbers[1]?.props['aria-label']);
   fire(numbers[1].props.onChange, { target: { value: '3' } });
 
   const saved = persisted();

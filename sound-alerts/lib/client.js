@@ -63,7 +63,12 @@ window.__ModuleLoader__.load({
 .dsh-sound-alerts__trigger:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 .dsh-sound-alerts--off .dsh-sound-alerts__trigger{color:var(--dsw-alias-label-dimmed,var(--dsw-alias-label-tertiary))}
 .dsh-sound-alerts--cue .dsh-sound-alerts__trigger{color:var(--dsw-alias-state-success-primary);border-color:currentColor}
-.dsh-sound-alerts__panel{position:absolute;top:calc(100% + 8px);right:0;z-index:60;box-sizing:border-box;width:286px;padding:12px;border-radius:12px;border:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-specific-menu,var(--dsw-alias-bg-base));box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;text-align:left}
+.dsh-sound-alerts__panel{position:absolute;top:calc(100% + 8px);right:0;z-index:60;box-sizing:border-box;width:286px;padding:12px;border-radius:12px;border:.5px solid var(--dsw-alias-border-l1);background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(var(--dsw-specific-menu,transparent),var(--dsw-specific-menu,transparent));backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:20px;text-align:left}
+.dsh-sound-alerts__ack{position:absolute;top:calc(100% + 8px);right:0;z-index:59;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:max-content;max-width:280px;padding:6px 6px 6px 10px;border-radius:10px;border:.5px solid var(--dsw-alias-border-l1);background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(var(--dsw-specific-menu,transparent),var(--dsw-specific-menu,transparent));backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;text-align:left}
+.dsh-sound-alerts__ackText{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsh-sound-alerts__ackButton{box-sizing:border-box;flex:none;height:24px;padding:0 8px;cursor:pointer;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-interactive-bg-hover,transparent);border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;font-family:inherit;font-size:11px;line-height:1}
+.dsh-sound-alerts__ackButton:hover{border-color:var(--dsw-alias-border-l1)}
+.dsh-sound-alerts__ackButton:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 .dsh-sound-alerts__title{color:var(--dsw-alias-label-primary);font-weight:500;margin-bottom:8px}
 .dsh-sound-alerts__group{padding:8px 0;border-top:.5px solid var(--dsw-alias-border-l3)}
 .dsh-sound-alerts__group:first-of-type{border-top:0;padding-top:0}
@@ -395,15 +400,19 @@ window.__ModuleLoader__.load({
      * @param sessionId - current Session identity.
      * @param settings - current settings.
      * @param notify - stable callback signalling that a cue fired.
-     * @returns the timestamp the current running stretch began, or null.
+     * @returns {{awaiting: boolean, acknowledge: () => void}} whether a finished
+     *   turn is still waiting to be acknowledged, and the callback that stops the
+     *   reminder for it.
      */
     function useCompletionAlert(session, sessionId, settings, notify) {
       const running = session((snapshot) => snapshot.running);
       const runningSince = react.useRef(null);
       const wasRunning = react.useRef(false);
-      // Set by the edge below and cleared the moment a turn starts again: the
-      // reminder plays exactly while the finished turn is still unanswered.
-      const awaitingReply = react.useRef(false);
+      // The reminder plays exactly while the finished turn is still unanswered.
+      // This is state rather than a ref because the acknowledge bar is rendered
+      // from it; the two ways out — a new turn, or an explicit acknowledgement —
+      // both clear it.
+      const [awaitingReply, setAwaitingReply] = react.useState(false);
       // The effect reads settings only at the instant a cue fires. Holding the
       // latest value in a ref keeps the effect's dependency list to the signal
       // itself, so editing the volume in the panel cannot replay a cue.
@@ -415,7 +424,7 @@ window.__ModuleLoader__.load({
         // memory and the clock so navigation cannot look like a completion.
         runningSince.current = null;
         wasRunning.current = false;
-        awaitingReply.current = false;
+        setAwaitingReply(false);
       }, [sessionId]);
 
       react.useEffect(() => {
@@ -423,7 +432,7 @@ window.__ModuleLoader__.load({
           if (runningSince.current === null) runningSince.current = Date.now();
           wasRunning.current = true;
           // The user replied — or a turn is under way — so nothing is pending.
-          awaitingReply.current = false;
+          setAwaitingReply(false);
           return;
         }
         const observed = wasRunning.current;
@@ -433,7 +442,7 @@ window.__ModuleLoader__.load({
         if (!observed || startedAt === null) return;
         if (Date.now() - startedAt < latest.current.minTurnMs) return;
         play(latest.current, "turnComplete", notify);
-        awaitingReply.current = true;
+        setAwaitingReply(true);
       }, [running, sessionId]);
 
       // The reminder. This effect is declared after the edge above, so within a
@@ -441,11 +450,17 @@ window.__ModuleLoader__.load({
       // turn starting again changes `running`, which disarms it through cleanup.
       const remind = settings.turnComplete.remind;
       react.useEffect(() => {
-        if (running === true || awaitingReply.current !== true || remind !== true) return undefined;
+        if (running === true || awaitingReply !== true || remind !== true) return undefined;
         return startReminder(latest, "turnComplete", notify);
-      }, [running, sessionId, remind]);
+      }, [running, sessionId, remind, awaitingReply]);
 
-      return runningSince;
+      // Stable, so the bar's button never changes identity and a re-render
+      // cannot restart a reminder the user just dismissed.
+      const acknowledge = react.useCallback(() => {
+        setAwaitingReply(false);
+      }, []);
+
+      return { awaiting: awaitingReply, acknowledge };
     }
 
     /**
@@ -544,7 +559,7 @@ window.__ModuleLoader__.load({
       "panel.flashHint": "每次提示音都会让屏幕短暂闪烁，设为静音的提示也会闪烁。",
       "panel.minTurn": "最短回合时长",
       "panel.minTurnHint": "回合短于此时长不播放提示音（毫秒）。",
-      "panel.complete": "最终回复完成时",
+      "panel.complete": "任何回复完成时",
       "panel.input": "需要你操作时",
       "panel.sound": "音效",
       "panel.repeat": "重复",
@@ -553,6 +568,10 @@ window.__ModuleLoader__.load({
       "panel.remindEvery": "每隔",
       "panel.seconds": "秒",
       "panel.remindHint": "只要尚未回应就会一直重复播放，回应后立即停止。",
+      "panel.remindAckHint": "只要尚未回应就会一直重复播放；再次发送请求或点击提示条上的“停止重复”即可停止本轮。",
+      "ack.text": "正在重复，直到你回应",
+      "ack.stop": "停止重复",
+      "ack.aria": "停止本轮的重复提示音",
       "panel.test": "试听",
       "panel.reset": "恢复默认",
       "panel.footer": "设置仅保存在此浏览器中，刷新或重启后仍然有效。",
@@ -576,7 +595,7 @@ window.__ModuleLoader__.load({
       "panel.flashHint": "A brief full-screen pulse with every cue, including a Silent one.",
       "panel.minTurn": "Minimum turn length",
       "panel.minTurnHint": "Turns shorter than this stay silent, in milliseconds.",
-      "panel.complete": "When a final response completes",
+      "panel.complete": "When any response completes",
       "panel.input": "When your input is needed",
       "panel.sound": "Sound",
       "panel.repeat": "Repeat",
@@ -585,6 +604,10 @@ window.__ModuleLoader__.load({
       "panel.remindEvery": "Every",
       "panel.seconds": "sec",
       "panel.remindHint": "Keeps repeating while the request is unanswered, and stops as soon as you respond.",
+      "panel.remindAckHint": "Keeps repeating until you respond: sending another request stops it, and so does Stop repeating on the bar under the speaker.",
+      "ack.text": "Repeating until you respond",
+      "ack.stop": "Stop repeating",
+      "ack.aria": "Stop the repeating alert for this turn",
       "panel.test": "Test",
       "panel.reset": "Reset",
       "panel.footer": "Preferences are stored in this browser only and survive a reload.",
@@ -693,7 +716,13 @@ window.__ModuleLoader__.load({
               jsx("span", { className: "dsh-sound-alerts__label", children: t("panel.seconds") }),
             ],
           }),
-          jsx("div", { className: "dsh-sound-alerts__hint", children: t("panel.remindHint") }),
+          jsx("div", {
+            className: "dsh-sound-alerts__hint",
+            // The completion cue can also be stopped from the acknowledge bar
+            // under the speaker, so its hint names that second way out; the
+            // input cue has only the one (answering the request).
+            children: t(cue === "turnComplete" ? "panel.remindAckHint" : "panel.remindHint"),
+          }),
           jsxs("div", {
             className: "dsh-sound-alerts__actions",
             children: [
@@ -905,7 +934,7 @@ window.__ModuleLoader__.load({
       // hooks: hooks must run unconditionally, and a zero volume is the same
       // thing to `play` while keeping the call sites identical.
       const audible = live ? settings : { ...settings, volume: 0 };
-      useCompletionAlert(useSession, sessionId, audible, alertFlash);
+      const completion = useCompletionAlert(useSession, sessionId, audible, alertFlash);
       useInputAlert(useSessionStatus, sessionId, audible, alertFlash);
 
       react.useEffect(() => {
@@ -934,6 +963,14 @@ window.__ModuleLoader__.load({
       if (sessionId === undefined) return null;
 
       const status = live ? t("control.on") : t("control.off");
+      // The acknowledge bar: shown only while a finished turn's cue is actually
+      // repeating — the reminder is on, alerts are audible, a turn has completed
+      // and nobody has answered it yet. Sending another request clears the same
+      // flag, so this is the second way out of the loop, not a replacement for
+      // the first. Hidden while the settings panel is open, which occupies the
+      // same anchored slot.
+      const showAck =
+        completion.awaiting === true && settings.turnComplete.remind === true && live && !open;
       return jsxs("span", {
         ref: rootRef,
         className:
@@ -973,6 +1010,22 @@ window.__ModuleLoader__.load({
               children: jsx(SpeakerGlyph, { on: live, cue: cueing }),
             }),
           }),
+          showAck &&
+            jsxs("span", {
+              className: "dsh-sound-alerts__ack",
+              role: "status",
+              "data-sound-alerts-ack": "",
+              children: [
+                jsx("span", { className: "dsh-sound-alerts__ackText", children: t("ack.text") }),
+                jsx("button", {
+                  type: "button",
+                  className: "dsh-sound-alerts__ackButton",
+                  "aria-label": t("ack.aria"),
+                  onClick: completion.acknowledge,
+                  children: t("ack.stop"),
+                }),
+              ],
+            }),
           open &&
             jsx(SoundPanel, {
               settings,
