@@ -15,9 +15,10 @@ a failure — the failure sections say what each one means.
 | Plugin | Package | Kind | Result |
 |---|---|---|---|
 | `sound-alerts/` | `dsh-sound-alerts` | Bundle, with a browser (`dsh.client`) half | A speaker control in the session header; a cue when a response completes and when input is needed, each repeating every minute until you respond and each flashing the screen |
+| `live-terminal/` | `dsh-live-terminal` | Bundle, with a browser (`dsh.client`) half | A terminal window docked above the composer; it streams the output of every command the agent runs and counts a stopwatch until the command exits |
 | `rebrand/` | `dsh-rebrand` | Bundle, host-only | The DeepSeek wordmark/logo go away; title, manifest, and favicon become **Harness**, reapplied automatically at every boot |
 
-Both are **bundles**: npm packages whose `package.json` declares
+All are **bundles**: npm packages whose `package.json` declares
 `dsh.bundle.patch`. DSH installs a bundle by listing it in the profile's
 `dsh.profile.bundles` and applying the package's `cordis.patch.yml` as a
 configuration layer at boot. `install.mjs` drives that for a local checkout;
@@ -109,7 +110,7 @@ dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/rebrand
 Restart DSH afterwards (`dsh web`). Bundles are composed at boot, so
 `patchReload: live` does **not** cover them.
 
-For a local checkout, `node install.mjs` runs the same two commands against this
+For a local checkout, `node install.mjs` runs the same commands against this
 directory, with two safeguards worth knowing:
 
 ```sh

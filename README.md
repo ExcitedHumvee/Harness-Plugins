@@ -1,15 +1,16 @@
 <h1 align="center">Harness Plugins</h1>
 
 <p align="center">
-Two plugins for the <b>DeepSeek Harness (DSH)</b> Web GUI: notification sounds when an agent finishes or needs you, and a rebrand that removes the DeepSeek wordmark and logo.
+Four plugins for the <b>DeepSeek Harness (DSH)</b> Web GUI: notification sounds when an agent finishes or needs you, a live terminal window that streams and times each command the agent runs, a spinner that shows when the agent is working, and a rebrand that removes the DeepSeek wordmark and logo.
 </p>
 
 | Plugin | What it does | Where the work happens |
 |---|---|---|
 | [`sound-alerts/`](./sound-alerts/README.md) | One synthesized cue when a final response completes, another when the agent is waiting on your input, each able to repeat every minute until you respond and each flashing the screen, with a header control for customizing both | Browser (`dsh.client`) |
+| [`live-terminal/`](./live-terminal/README.md) | A terminal window docked above the composer that streams each command's output live and counts a stopwatch until it exits | Host + browser (`dsh.client`) |
 | [`rebrand/`](./rebrand/README.md) | Removes the DeepSeek wordmark and logo from the shipped web frontend and renames the app to **Harness** | Host (`dsh.bundle`) |
 
-Both are **bundles**: npm packages whose manifest declares `dsh.bundle`, which is
+All are **bundles**: npm packages whose manifest declares `dsh.bundle`, which is
 the form DSH installs from a git repository, a tarball, npm, or a local folder.
 Installing one takes a single DSH command and no build step — the packages ship
 their runtime files.
@@ -135,7 +136,7 @@ the GUI.
 ```
 README.md                  this file
 install.mjs                install / --check / --wire / --uninstall for this checkout
-verify.mjs                 runs all six checks
+verify.mjs                 runs all seven checks
 scripts/
   check-packages.mjs       validates every package against the bundle contract
   check-rebrand-plugin.mjs exercises the rebrand host plugin against a pristine frontend

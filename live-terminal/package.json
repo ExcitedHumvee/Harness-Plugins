@@ -1,0 +1,41 @@
+{
+  "name": "dsh-live-terminal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A live terminal window docked above the composer: it shows each terminal command the agent runs, streams its stdout/stderr while it runs, and counts a stopwatch until it exits",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ExcitedHumvee/Harness-Plugins.git",
+    "directory": "live-terminal"
+  },
+  "license": "MIT"
+}

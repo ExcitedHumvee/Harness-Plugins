@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "title": "实时终端",
+    "description": "停靠在输入框上方的终端窗口，实时显示智能体运行的每条命令的输出，并用秒表计时。"
+  },
+  "title": "实时终端",
+  "running": "运行中",
+  "finished": "已完成",
+  "failed": "失败",
+  "cancelled": "已取消",
+  "waiting": "启动中…",
+  "noCommand": "没有正在运行的命令",
+  "waitingForFirstOutput": "等待输出…",
+  "noOutput": "无输出",
+  "collapse": "折叠终端窗口",
+  "expand": "展开终端窗口",
+  "close": "隐藏终端窗口",
+  "showLast": "显示上一条命令",
+  "copy": "复制输出",
+  "copied": "已复制",
+  "exitCode": "退出码 {code}",
+  "idleHint": "智能体运行命令时，会显示在这里。",
+  "hideIdle": "空闲时隐藏",
+  "showIdle": "空闲时保留窗口"
+}

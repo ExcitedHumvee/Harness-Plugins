@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "title": "Live Terminal",
+    "description": "A terminal window docked above the composer that streams the output of every command the agent runs and times it with a stopwatch."
+  },
+  "title": "Live terminal",
+  "running": "Running",
+  "finished": "Finished",
+  "failed": "Failed",
+  "cancelled": "Cancelled",
+  "waiting": "Starting…",
+  "noCommand": "No command running",
+  "waitingForFirstOutput": "Waiting for output…",
+  "noOutput": "No output",
+  "collapse": "Collapse the terminal window",
+  "expand": "Expand the terminal window",
+  "close": "Hide the terminal window",
+  "showLast": "Show the last command",
+  "copy": "Copy output",
+  "copied": "Copied",
+  "exitCode": "exit {code}",
+  "idleHint": "Commands appear here while the agent runs them.",
+  "hideIdle": "Hide when idle",
+  "showIdle": "Keep window when idle"
+}

@@ -1,0 +1,10 @@
+# The live-terminal bundle patch: the composition layer this package contributes.
+#
+# The Host row mounts the command tracker and the snapshot route; the browser
+# half arrives through this package's own `dsh.client` declaration and
+# `exports["./client"]`. The row names the package (not a path) so Node
+# resolution finds the installed copy: `<profile>/node_modules/dsh-live-terminal`.
+
+- insert:
+    - id: live-terminal
+      name: dsh-live-terminal
