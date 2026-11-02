@@ -1,0 +1,30 @@
+do not process {
+i am quite unhappy with this plugin, theres lots of bugs
+
+i would like a small dashboard with settings, just like the installed sound-alerts plugin (because sometimes when i dismiss the live-terminal plugin i cannot get it back)
+
+take a look at 'Screenshot 2026-11-02 at 3.26.39 PM.png' if a command has run, it is showing the run command result, but it is not showing the run command in the title bar
+
+take a look at 'Screenshot 2026-11-02 at 3.31.13 PM.png' when a command is running, in the running window it will display 2 commands on top of each other: running command and last result below it; this last result is no longer needed
+
+looking at completed terminal runs: when hovering on the title bar for each result: i should see full command (right now some long commands dont fit)
+
+after full prompt is completed: all the previous run results disappear from the chat (note that i have not refreshed browser/ plugin)
+
+when a command is running, and panel.show is enabled: i see 2 boxes: 
+    the box which is always showing, and it showing the running command and the a stop watch
+    the panel itself that is showing the output of the current run command
+we need to combine these 2: always show the running command, and stopwatch; and depending whether the panel.show is enabled, do show the output
+perhaps the design philosophy of this plugin should be changed a little bit
+
+}
+process {
+
+there is a bug when hovering over title of a command that has already run: im not able to see the popup as i think the popup is going outside dsh-lt-run__bar (or another div element)
+
+
+
+}
+do not process {
+    
+}

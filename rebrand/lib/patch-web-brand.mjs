@@ -41,7 +41,7 @@ import { pathToFileURL } from 'node:url';
 
 import {
   DS_BADGE_PREFIX,
-  PATCHED_MARKER,
+  PATCHED_GLYPH_PATH,
   WHALE_PREFIX,
   WORDMARK_LETTERING_PREFIX,
   count,
@@ -203,7 +203,7 @@ export function patchBundleText(original) {
   if (source.includes(symbols.wordmarkDefsPrefix)) {
     throw new Error('postcondition failed: wordmark clip paths still present');
   }
-  if (!source.includes(PATCHED_MARKER)) throw new Error('postcondition failed: HARNESS wordmark missing');
+  if (!source.includes(PATCHED_GLYPH_PATH)) throw new Error('postcondition failed: the neutral glyph is missing');
   if (count(source, `const ${symbols.viewboxLocal}={width:16,height:16}`) !== 1) {
     throw new Error('postcondition failed: FISH_LOGO_VIEWBOX not rewritten');
   }
@@ -300,7 +300,7 @@ export {
   WHALE_PREFIX,
   WORDMARK_LETTERING_PREFIX,
   DS_BADGE_PREFIX,
-  PATCHED_MARKER,
+  PATCHED_GLYPH_PATH,
   count,
   findClosing,
   isAlreadyPatched,

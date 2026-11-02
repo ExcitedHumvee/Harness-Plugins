@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { apply } from '../rebrand/lib/index.js';
+import { patchBundleText } from '../rebrand/lib/patch-web-brand.mjs';
 import { bundleIn } from '../rebrand/lib/resolve-frontend.mjs';
 
 const source = process.argv[2];
@@ -72,6 +73,27 @@ function freshDist() {
 
 console.log('rebrand host plugin');
 
+// (0) the pristine fixture must genuinely need patching.
+//
+// DSH 0.2.1's own frontend already ships a `HARNESS` wordmark span, so every
+// shell-level assertion below (the title, the manifest name) holds on an
+// *unpatched* build too. Without this guard the harness passed against a build
+// whose whale mark the boot had silently left in place. Only the bundle can
+// say whether the work is outstanding.
+{
+  const bundle = bundleIn(source);
+  const found = bundle !== null && existsSync(bundle);
+  ok('the fixture has a bundle the patcher reads', found, bundle ?? 'no index-*.js');
+  if (found) {
+    const result = patchBundleText(readFileSync(bundle, 'utf8'));
+    ok(
+      'the fixture still needs patching',
+      result.status === 'patched',
+      result.status === 'patched' ? '' : 'the fixture is already rebranded — it cannot test a patch',
+    );
+  }
+}
+
 // (a) it patches a pristine install.
 const first = freshDist();
 {
@@ -95,10 +117,15 @@ const first = freshDist();
 // (c) enabled: false is a no-op.
 {
   const second = freshDist();
+  const originalHtml = readFileSync(join(second.dist, 'index.html'), 'utf8');
   const ctx = stubContext();
   await apply(ctx, { dist: second.dist, detectServed: false, enabled: false });
   const html = readFileSync(join(second.dist, 'index.html'), 'utf8');
-  ok('enabled: false leaves the frontend alone', html.includes('<title>DeepSeek Harness</title>'));
+  ok(
+    'enabled: false leaves the frontend alone',
+    html === originalHtml,
+    'index.html is identical to the pristine install',
+  );
   ok('enabled: false says why', ctx.lines.some((line) => line.includes('disabled by config')));
   rmSync(second.root, { recursive: true, force: true });
 }

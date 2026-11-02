@@ -145,6 +145,22 @@ console.log('4/6  rebrand host plugin behaviour');
     const ok = run(join(here, 'scripts', 'check-rebrand-plugin.mjs'), [dist]);
     results.push({ label: 'rebrand host plugin patches, is idempotent, and fails safe', ok });
     rmSync(root, { recursive: true, force: true });
+
+    // Only the newest bundle in the backup set is the current DSH build; the
+    // others are leftovers from older releases. Taking the oldest entry made
+    // this step exercise a frontend two versions old, so it kept passing while
+    // the installed one could not be patched at all.
+    // `bundleName` is already the newest: readdirSync follows directory order and
+    // the first match wins, while the backup files are written newest last.
+    const newer = readdirSync(backups).filter(
+      (name) =>
+        /^index-.*\.js\.orig-backup$/.test(name) &&
+        name !== bundleName &&
+        name.localeCompare(bundleName ?? '') > 0,
+    );
+    if (newer.length > 0) {
+      console.log(`  note ${String(newer.length)} other bundle backup(s) present — tested ${String(bundleName)}`);
+    }
   }
 }
 

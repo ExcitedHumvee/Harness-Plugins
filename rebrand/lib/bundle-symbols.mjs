@@ -36,8 +36,16 @@ const WHALE_PREFIX = 'M22.9168 1.43018C22.6713 1.31018';
 const DS_BADGE_PREFIX = 'M132.848 8.93205H134.08V16.137';
 /** First path of the "DeepSeek" lettering. */
 const WORDMARK_LETTERING_PREFIX = 'M68.416 18.2447H67.0501V16.1272H68.416';
-/** Marks the wordmark this patcher writes. */
-const PATCHED_MARKER = 'children:"HARNESS"';
+/**
+ * The neutral glyph this patcher writes into the mark.
+ *
+ * The whale path doubles as the "needs patching" signal and this glyph as the
+ * "already patched" one. The wordmark's `children:"HARNESS"` alone is not a
+ * valid signal: DSH 0.2.1's own frontend ships a wordmark with exactly that
+ * child, so keying on it made a pristine build classify as already patched and
+ * the boot skipped the real patch, leaving the whale lockup in place.
+ */
+const PATCHED_GLYPH_PATH = 'M8 0.5 9.85 6.15 15.5 8 9.85 9.85 8 15.5 6.15 9.85 0.5 8 6.15 6.15Z';
 
 /** The export-map names the package publishes, and so the anchors we can trust. */
 const EXPORTS = {
@@ -198,20 +206,21 @@ function jsxRuntimeOf(body) {
  * Whether this bundle already carries the patch.
  *
  * Checked before resolution, because a patched bundle no longer matches the
- * original signatures. The marker is the wordmark this patcher writes, anchored
- * on the export-mapped component so an unrelated `HARNESS` string cannot
- * trigger it.
+ * original signatures. The marker is the neutral glyph this patcher writes into
+ * the mark; the wordmark's text is not used, because DSH's own frontend ships
+ * `children:"HARNESS"` too. Nor is the mark alone enough: DSH 0.2.1 already
+ * ships a plain `HARNESS` span for the brand wordmark.
  *
  * @param source - the bundle text.
  * @returns {boolean} true when the patch is already applied.
  */
 export function isAlreadyPatched(source) {
-  const local = exportedLocal(source, EXPORTS.wordmark);
+  const local = exportedLocal(source, EXPORTS.fishLogo);
   if (local === null) return false;
   const start = source.search(new RegExp(`function\\s+${local}\\s*\\(`));
   if (start === -1) return false;
   const span = functionAt(source, start);
-  return span !== null && span.source.includes(PATCHED_MARKER);
+  return span !== null && span.source.includes(PATCHED_GLYPH_PATH);
 }
 
 /**
@@ -408,7 +417,7 @@ export {
   WHALE_PREFIX,
   DS_BADGE_PREFIX,
   WORDMARK_LETTERING_PREFIX,
-  PATCHED_MARKER,
+  PATCHED_GLYPH_PATH,
   count,
   findClosing,
   escapeRegExp,

@@ -232,6 +232,6 @@ of the brand that was just removed, reachable by URL.
 `APP_NAME` in `lib/patch-web-shell.mjs` sets the title and manifest name, and the
 `HARNESS` literal inside `harnessWordmarkReplacement()` in
 `lib/patch-web-brand.mjs` carries the uppercase in-app wordmark. Change both, and
-change `PATCHED_MARKER` in `lib/bundle-symbols.mjs` to match the new literal, since
+change `PATCHED_GLYPH_PATH` in `lib/bundle-symbols.mjs` to match the new glyph, since
 that is what "already patched" detection keys on. Then re-run against a pristine
 bundle (restore a backup first).
