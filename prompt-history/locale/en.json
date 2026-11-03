@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Prompt History",
+    "description": "Terminal-style history in the message composer: press Up or Down at the start of the line, or in an empty box, to cycle through the prompts and slash commands you already sent in this session."
+  }
+}

@@ -453,8 +453,10 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** The gear glyph, drawn inline so the plugin ships no icon dependency. */
-    function GearGlyph({ open }) {
+    /** The header button's terminal glyph, inline so the plugin ships no icon dependency. */
+    function SettingsGlyph({ open }) {
+      // Option A's terminal outline, redrawn on the 24x24 grid this button uses.
+      // It inherits `currentColor`, so the host's header color still drives it.
       return h(
         'svg',
         {
@@ -463,21 +465,23 @@ window.__ModuleLoader__.load({
           viewBox: '0 0 24 24',
           fill: 'none',
           stroke: 'currentColor',
-          strokeWidth: 1.7,
+          strokeWidth: 1.8,
           strokeLinecap: 'round',
           strokeLinejoin: 'round',
           'aria-hidden': 'true',
-          style: open ? { transform: 'rotate(30deg)', transition: 'transform .15s ease' } : undefined,
+          // The panel's open state reads through the button's active surface;
+          // the glyph itself only needs a slight weight change.
+          style: { opacity: open ? 1 : 0.92, transition: 'opacity .15s ease' },
         },
-        h('circle', { cx: 12, cy: 12, r: 3.2 }),
-        h('path', {
-          d: 'M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z',
-        }),
+        h('rect', { x: 2.5, y: 4.5, width: 19, height: 15, rx: 2.6 }),
+        h('path', { d: 'M7 9.5l3 2.5-3 2.5' }),
+        h('path', { d: 'M12.5 14.5h5' }),
       );
     }
 
     /**
-     * The always-present header control: a gear that opens the settings panel.
+     * The always-present header control: a terminal button that opens the
+     * settings panel.
      *
      * This is the escape hatch the window previously lacked. It sits in the
      * session header utilities, so it is reachable no matter what the window
@@ -525,7 +529,7 @@ window.__ModuleLoader__.load({
             'aria-expanded': open,
             onClick: () => setOpen((value) => !value),
           },
-          GearGlyph({ open }),
+          SettingsGlyph({ open }),
         ),
         open
           ? LiveTerminalPanel({

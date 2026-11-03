@@ -16,6 +16,7 @@ a failure — the failure sections say what each one means.
 |---|---|---|---|
 | `sound-alerts/` | `dsh-sound-alerts` | Bundle, with a browser (`dsh.client`) half | A speaker control in the session header; a cue when a response completes and when input is needed, each repeating every minute until you respond and each flashing the screen |
 | `live-terminal/` | `dsh-live-terminal` | Bundle, with a browser (`dsh.client`) half | A terminal window docked above the composer; it streams the output of every command the agent runs and counts a stopwatch until the command exits |
+| `prompt-history/` | `dsh-prompt-history` | Bundle, with a browser (`dsh.client`) half | Up/Down at the start of the message composer (or in an empty box) cycles through the prompts and slash commands already sent in the session, and Down past the newest restores the draft |
 | `rebrand/` | `dsh-rebrand` | Bundle, host-only | The DeepSeek wordmark/logo go away; title, manifest, and favicon become **Harness**, reapplied automatically at every boot |
 
 All are **bundles**: npm packages whose `package.json` declares
@@ -104,6 +105,7 @@ lines and `check complete: every install above can be patched cleanly.`
 
 ```sh
 dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/sound-alerts"
+dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/prompt-history"
 dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/rebrand"
 ```
 

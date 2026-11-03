@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Prompt History">
+  <rect x="4" y="6" width="56" height="52" rx="11" fill="#1b2230"/>
+  <path d="M13 24h15" fill="none" stroke="#5fd38d" stroke-width="3" stroke-linecap="round"/>
+  <path d="M13 33h22" fill="none" stroke="#8b9bb4" stroke-width="3" stroke-linecap="round"/>
+  <path d="M13 42h15" fill="none" stroke="#8b9bb4" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="46" cy="33" r="11" fill="#22304a"/>
+  <path d="M46 39V27" fill="none" stroke="#8fd6ff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M41.5 31.5L46 27l4.5 4.5" fill="none" stroke="#8fd6ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

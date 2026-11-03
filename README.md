@@ -1,13 +1,14 @@
 <h1 align="center">Harness Plugins</h1>
 
 <p align="center">
-Four plugins for the <b>DeepSeek Harness (DSH)</b> Web GUI: notification sounds when an agent finishes or needs you, a live terminal window that streams and times each command the agent runs, a spinner that shows when the agent is working, and a rebrand that removes the DeepSeek wordmark and logo.
+Four plugins for the <b>DeepSeek Harness (DSH)</b> Web GUI: notification sounds when an agent finishes or needs you, a live terminal window that streams and times each command the agent runs, terminal-style prompt history in the message composer, and a rebrand that removes the DeepSeek wordmark and logo.
 </p>
 
 | Plugin | What it does | Where the work happens |
 |---|---|---|
 | [`sound-alerts/`](./sound-alerts/README.md) | One synthesized cue when a final response completes, another when the agent is waiting on your input, each able to repeat every minute until you respond and each flashing the screen, with a header control for customizing both | Browser (`dsh.client`) |
 | [`live-terminal/`](./live-terminal/README.md) | A terminal window docked above the composer that streams each command's output live and counts a stopwatch until it exits | Host + browser (`dsh.client`) |
+| [`prompt-history/`](./prompt-history/README.md) | Terminal-style history in the message composer: Up and Down at the start of the line cycle through the prompts and slash commands already sent in the session | Browser (`dsh.client`) |
 | [`rebrand/`](./rebrand/README.md) | Removes the DeepSeek wordmark and logo from the shipped web frontend and renames the app to **Harness** | Host (`dsh.bundle`) |
 
 All are **bundles**: npm packages whose manifest declares `dsh.bundle`, which is
@@ -46,6 +47,8 @@ safe to re-run:
 
 ```sh
 dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/sound-alerts"
+dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/live-terminal"
+dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/prompt-history"
 dsh plugin --profile web add "github:ExcitedHumvee/Harness-Plugins#path:/rebrand"
 ```
 
@@ -65,6 +68,7 @@ that holds `package.json` — not the repository root:
 ```sh
 git clone https://github.com/ExcitedHumvee/Harness-Plugins.git
 dsh plugin --profile web add "<clone>/sound-alerts"
+dsh plugin --profile web add "<clone>/prompt-history"
 dsh plugin --profile web add "<clone>/rebrand"
 ```
 
@@ -102,8 +106,15 @@ node verify.mjs
 
 Six steps: every script parses; each package satisfies the bundle contract; the
 `sound-alerts` browser half and the `rebrand` host half behave; the rebrand is in
-effect on this machine; both plugins are installed in the profile. Exit code 0
+effect on this machine; the plugins are installed in the profile. Exit code 0
 means everything that could run passed.
+
+The `prompt-history` browser half has its own behavioural check, because the
+repository-wide runner drives only the two plugins above:
+
+```sh
+node prompt-history/verify-client.mjs
+```
 
 ## After installing
 
@@ -113,7 +124,11 @@ means everything that could run passed.
    turn length, per-cue sound/repeat/gap, the per-cue "repeat until you respond"
    reminder and its interval, Test, and Reset. Preferences are browser-local
    (`localStorage`), not host settings.
-3. `rebrand`: the browser tab reads **Harness** and the favicon is a neutral
+3. `prompt-history`: in the message composer, put the caret at the start of the
+   line (or leave the box empty) and press <kbd>↑</kbd> to recall the newest prompt
+   or slash command sent in that session; keep pressing to walk further back, and
+   <kbd>↓</kbd> to walk forward and finally restore the draft you started with.
+4. `rebrand`: the browser tab reads **Harness** and the favicon is a neutral
    rounded-square "H" in both light and dark mode. The patch is applied
    automatically at every boot, so a DSH upgrade no longer loses it. If the tab
    still looks old, the browser cached a favicon — open a fresh tab or hard-reload.

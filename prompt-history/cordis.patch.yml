@@ -1,0 +1,10 @@
+# The prompt-history bundle patch: the composition layer this package contributes.
+#
+# The row mounts the (empty) Host entry; the browser half arrives through this
+# package's own `dsh.client` declaration and `exports["./client"]`. The row names
+# the package (not a path) so Node resolution finds the installed copy:
+# `<profile>/node_modules/dsh-prompt-history`.
+
+- insert:
+    - id: prompt-history
+      name: dsh-prompt-history
